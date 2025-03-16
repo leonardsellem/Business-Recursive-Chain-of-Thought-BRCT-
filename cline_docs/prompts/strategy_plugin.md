@@ -1,6 +1,6 @@
-# **Cline Recursive Chain-of-Thought System (CRCT) - Strategy Plugin**
+# **Business Recursive Chain-of-Thought Framework (BRCT) - Strategy Plugin**
 
-**This Plugin provides detailed instructions and procedures for the Strategy phase of the CRCT system. It should be used in conjunction with the Core System Prompt.**
+**This Plugin provides detailed instructions and procedures for the Strategy phase of the BRCT system. It should be used in conjunction with the Core System Prompt.**
 
 ---
 
@@ -13,12 +13,13 @@
 
 **Exiting Strategy Phase:**
 1. **Completion Criteria:**
-   - Instruction files for prioritized tasks are created with objectives, context, dependencies, and steps.
-   - Tasks are prioritized and ready for execution.
-   - Strategy objectives for the cycle are met.
+   - Business ideas have been generated and evaluated
+   - Business models have been developed
+   - Strategic analyses (SWOT, market research) have been completed
+   - Tasks are prioritized and ready for execution
 2. **`.clinerules` Update (MUP):**
    ```
-   last_action: "Completed Strategy Phase - Tasks Planned"
+   last_action: "Completed Strategy Phase - Business Plan Developed"
    current_phase: "Strategy"
    next_action: "Phase Complete - User Action Required"
    next_phase: "Execution"
@@ -29,123 +30,222 @@
 
 ## II. Loading Context for Strategy
 
-**Action**: Load context to guide strategy.
+**Action**: Load context to guide business innovation strategy.
 **Procedure:**
-- Load core files: `.clinerules`, `projectbrief.md`, `productContext.md`, `activeContext.md`, `dependency_tracker.md`, `changelog.md`, `doc_tracker.md`.
+- Load core files: `.clinerules`, `projectbrief.md`, `productContext.md`, `activeContext.md`, `business_dependency_tracker.md`, `changelog.md`, `progress.md`.
 - Review `activeContext.md` for current state, decisions, and priorities.
-- Check `dependency_tracker.md` and `doc_tracker.md` for module and documentation dependencies.
-- Revisit `projectbrief.md` and `productContext.md` to align with project scope and purpose.
+- Check `business_dependency_tracker.md` for business factor relationships.
+- Revisit `projectbrief.md` and `productContext.md` to align with business goals and user needs.
 - Examine `.clinerules` [LEARNING_JOURNAL] for past insights influencing strategy.
+- Review available business templates in `src/business_templates/`.
 
 ---
 
-## III. Creating New Task Instruction Files
+## III. Business Idea Generation
 
-**Action**: Create `*_instructions.txt` files for tasks/subtasks.
+**Action**: Generate business ideas using structured approaches and templates.
 **Procedure:**
-1. **Identify Task/Subtask**: Use `projectbrief.md`, `productContext.md`, `activeContext.md`, and project state to select tasks, such as:
-   - Breaking down `projectbrief.md` objectives.
-   - Addressing `activeContext.md` priorities.
-   - Targeting `dependency_tracker.md` modules.
-2. **Choose Task Name and Location:**
-   - **Task**: Create `{task_name}_instructions.txt` in a new directory if needed (e.g., `strategy_tasks/`).
-   - **Subtask**: Place `{subtask_name}_instructions.txt` in a parent task subdirectory.
-   - **Module-Level**: Use or create `{module_dir}/{module_dir}_main_instructions.txt` (see Set-up/Maintenance Plugin, Section VI).
-3. **Populate Instruction File Sections:**
-   - Set title: `# {Task Name} Instructions`.
-   - Define objective: Clearly state purpose and goals.
-   - Provide context: Include background and constraints, referencing files.
-   - List dependencies: Use hierarchical keys from `dependency_tracker.md`, `doc_tracker.md`, and mini-trackers.
-   - Outline steps: Break into actionable increments.
-   - Specify output: Describe deliverables.
-   - Add notes: Note challenges or considerations.
-   - Include mini-tracker (module files only): Add placeholder using `generate-keys`:
-     ```
-     python -m cline_utils.dependency_system.dependency_processor generate-keys utils --output utils/utils_main_instructions.txt --tracker_type mini
-     ```
-     *Replace `utils` with the actual module directory from `[CODE_ROOT_DIRECTORIES]` in `.clinerules`.*
-   - Example Instruction File:
-     ```
-     # DataProcessing Instructions
-
-     ## Objective
-     Process raw data into a structured format.
-
-     ## Context
-     Uses data from `raw_data.csv` in `data/`.
-
-     ## Dependencies
-     - 1A1 (`data/raw_data.csv`)
-     - 1B (`utils/data_utils.py`)
-
-     ## Steps
-     1. Read `raw_data.csv` using `data_utils.py`.
-     2. Clean data (remove nulls).
-     3. Write to `processed_data.csv`.
-
-     ## Expected Output
-     - `data/processed_data.csv`
-
-     ## Notes
-     - Handle large files carefully.
-     ```
-4. **MUP**: Follow Core MUP and Section V additions after creating files.
+1. **Select Approach**: Choose an appropriate idea generation methodology based on the business context:
+   - Brainstorming
+   - Mind Mapping
+   - Design Thinking
+   - Problem-Solution Matching
+   - Reverse Thinking
+2. **Use Idea Generation Template**: Utilize `src/business_templates/idea_generation_template.md` to document the process:
+   - Define the business challenge clearly
+   - Identify target users/customers
+   - Describe current solutions and limitations
+   - Document brainstorming participants and techniques
+   - Break down the problem into components (recursive decomposition)
+   - List raw ideas generated
+   - Refine into top ideas to explore
+3. **Apply Business Chain-of-Thought**: Document the reasoning process that led to the ideas, including:
+   - Explicit thought progression
+   - Consideration of business factors (market, organizational, etc.)
+   - Patterns and insights observed
+   - Alternative directions considered
+4. **MUP**: Follow Core MUP and Section VI additions after completing idea generation.
 
 ---
 
-## IV. Prioritizing Tasks and Subtasks
+## IV. Business Idea Evaluation
 
-**Action**: Determine task/subtask priority and order.
+**Action**: Evaluate generated business ideas using structured criteria.
 **Procedure:**
-1. **Review Existing Tasks**: Check incomplete instruction files in module or task directories.
-2. **Assess Dependencies**: Use `dependency_tracker.md`, `doc_tracker.md`, and mini-trackers to prioritize prerequisite tasks.
-3. **Consider Project Goals**: Align with `projectbrief.md` objectives, prioritizing key contributions.
-4. **Review `activeContext.md`**: Factor in recent priorities, issues, or feedback.
-5. **Update `activeContext.md`**: Record priorities and reasoning.
-
-### IV.1 Prioritization Flowchart
-```mermaid
-flowchart TD
-A[Start] --> B[Review Existing Tasks]
-B --> C[Assess Dependencies]
-C --> D[Align with Project Goals]
-D --> E[Check activeContext.md]
-E --> F[Set Priorities]
-F --> G[Update activeContext.md]
-G --> H[End]
-```
+1. **Use Idea Evaluation Template**: Utilize `src/business_templates/idea_evaluation_template.md` for each promising idea:
+   - Summarize the idea (name, description, problem addressed)
+   - Assess desirability (market need, differentiation, timing)
+   - Assess feasibility (technical complexity, resource requirements)
+   - Assess viability (revenue potential, profit margins, time to break-even)
+   - Evaluate strategic alignment (fit with company vision, capabilities)
+   - Perform SWOT analysis for the idea
+   - Assess risks and mitigation strategies
+2. **Apply Recursive Decomposition**:
+   - Break down the idea into key components
+   - Evaluate each component separately
+   - Assess component dependencies
+3. **Document Chain-of-Thought**:
+   - Record key insights from the evaluation
+   - Explain reasoning behind scores and assessments
+   - Document decision rationale
+4. **Make Recommendation**:
+   - Determine whether to proceed, modify, or reject each idea
+   - Prioritize ideas that should move forward
+   - Define next steps for selected ideas
+5. **MUP**: Follow Core MUP and Section VI additions after evaluating ideas.
 
 ---
 
-## V. Strategy Plugin - Mandatory Update Protocol (MUP) Additions
+## V. Business Model Development
+
+**Action**: Develop business models for selected ideas.
+**Procedure:**
+1. **Use Business Model Canvas Template**: Utilize `src/business_templates/business_model_canvas.md` for each selected idea:
+   - Define customer segments with recursive analysis
+   - Craft value propositions with component breakdown
+   - Identify channels and their effectiveness
+   - Establish customer relationships
+   - Define revenue streams
+   - Identify key resources, activities, and partnerships
+   - Define cost structure
+2. **Analyze Model Coherence**:
+   - Ensure all components of the business model fit together
+   - Identify potential inconsistencies or conflicts
+   - Compare with competing business models
+3. **Document Chain-of-Thought**:
+   - Record key insights about the business model
+   - Document critical dependencies between components
+   - Identify potential innovations or differentiators
+4. **Define Validation Plan**:
+   - List key assumptions to test
+   - Define validation methods
+   - Establish success criteria
+5. **MUP**: Follow Core MUP and Section VI additions after developing business models.
+
+---
+
+## VI. Strategic Analysis
+
+**Action**: Perform comprehensive strategic analyses to inform business innovation.
+**Procedure:**
+1. **SWOT Analysis**:
+   - Use `src/business_templates/swot_analysis_template.md`
+   - Analyze internal strengths and weaknesses
+   - Identify external opportunities and threats
+   - Apply recursive decomposition to core components
+   - Analyze cross-dependencies between SWOT elements
+   - Develop strategic implications (SO, ST, WO, WT strategies)
+2. **Market Research**:
+   - Use `src/business_templates/market_research_template.md`
+   - Define research objectives and questions
+   - Analyze market overview (size, growth, maturity)
+   - Segment the market
+   - Analyze trends
+   - Perform competitive analysis
+   - Develop customer personas and journey maps
+   - Apply recursive component analysis
+   - Document research methodology
+3. **Dependency Analysis**:
+   - Update `business_dependency_tracker.md` with new insights
+   - Refine relationships between business factors
+   - Document how market, organizational, and other factors influence each other
+4. **MUP**: Follow Core MUP and Section VII additions after completing strategic analyses.
+
+---
+
+## VII. Strategy Plugin - MUP Additions
 
 After Core MUP steps:
-1. **Update Instruction Files**: Save new or modified instruction files.
-2. **Update `activeContext.md` with Strategy Outcomes:**
-   - Summarize planned tasks.
-   - List new instruction file locations and names.
-   - Document priorities and reasoning (from Section IV).
-3. **Update `.clinerules` [LAST_ACTION_STATE]:**
+1. **Update Business Templates**: Save completed business templates with all generated content.
+2. **Update `business_dependency_tracker.md`**: Reflect new dependencies discovered during strategy.
+3. **Update `activeContext.md` with Strategy Outcomes:**
+   - Summarize generated and evaluated ideas
+   - List developed business models
+   - Highlight key strategic insights
+   - Document priorities and reasoning
+4. **Update `.clinerules` [LAST_ACTION_STATE]:**
    ```
-   ---CLINE_RULES_START---
    [LAST_ACTION_STATE]
-   last_action: "Completed Strategy Phase - Tasks Planned"
+   last_action: "Completed Idea Generation and Evaluation"
    current_phase: "Strategy"
-   next_action: "Phase Complete - User Action Required"
-   next_phase: "Execution"
+   next_action: "Develop Business Model"
+   next_phase: "Strategy"
+
+   [CODE_ROOT_DIRECTORIES]
+   - src
+
    [LEARNING_JOURNAL]
-   # Planned tasks on March 08, 2025: DataProcessing, ModelTraining.
-   ---CLINE_RULES_END---
    ```
 
 ---
 
-## VI. Quick Reference
-- **Actions:**
-  - Create instruction files: Define tasks/subtasks.
-  - Prioritize tasks: Assess dependencies and goals.
-- **Files:**
-  - `projectbrief.md`: Guides objectives.
-  - `activeContext.md`: Tracks state and priorities.
-  - `dependency_tracker.md`: Lists dependencies.
-- **MUP Additions:** Update instruction files, `activeContext.md`, and `.clinerules`.
+## VIII. Creating Business Innovation Task Instructions
+
+**Action**: Create structured instruction files for business innovation tasks.
+**Procedure:**
+1. **Identify Key Tasks**: Based on evaluated ideas and business models, identify the key tasks needed for implementation:
+   - Market validation tasks
+   - Product/service development tasks
+   - Business model validation tasks
+   - Marketing and sales strategy tasks
+2. **Choose Task Location:**
+   - Create `{task_name}_instructions.txt` in the `strategy_tasks/` directory
+   - Use clear, descriptive names for task files
+3. **Populate Instruction File Sections:**
+   - Set title: `# {Task Name} Instructions`
+   - Define objective: Clearly state purpose and goals
+   - Provide context: Include background and constraints
+   - List dependencies: Reference business factors from `business_dependency_tracker.md`
+   - Outline steps: Break into actionable increments
+   - Specify output: Describe deliverables
+   - Add notes: Note challenges or considerations
+   - Example Instruction File:
+     ```
+     # Market Validation Instructions
+
+     ## Objective
+     Validate assumptions about our target market segment and value proposition.
+
+     ## Context
+     Based on our business model canvas and evaluation, the key assumptions
+     needing validation are customer willingness to pay and problem severity.
+
+     ## Dependencies
+     - Market Factors (customer segments, market size)
+     - Product/Service Factors (value proposition)
+
+     ## Steps
+     1. Develop customer interview script
+     2. Conduct 10-15 interviews with target customers
+     3. Analyze feedback for patterns
+     4. Update business model based on findings
+
+     ## Expected Output
+     - Interview results summary
+     - Validated/invalidated assumptions list
+     - Revised business model canvas
+
+     ## Notes
+     - Focus on open-ended questions
+     - Seek disconfirming evidence
+     ```
+4. **MUP**: Follow Core MUP and Section VII additions after creating instruction files.
+
+---
+
+## IX. Quick Reference
+
+### Business Innovation Templates
+- `idea_generation_template.md`: For structured brainstorming
+- `idea_evaluation_template.md`: For assessing business ideas
+- `business_model_canvas.md`: For business model development
+- `swot_analysis_template.md`: For strategic analysis
+- `market_research_template.md`: For market research and analysis
+
+### Key Strategy Actions
+1. Generate business ideas
+2. Evaluate ideas using structured criteria
+3. Develop business models for selected ideas
+4. Perform strategic analyses
+5. Create task instructions for execution
+6. Follow MUP after each action

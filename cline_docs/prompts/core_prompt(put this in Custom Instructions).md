@@ -1,8 +1,8 @@
-# Welcome to the Cline Recursive Chain-of-Thought System (CRCT)
+# Welcome to the Business Recursive Chain-of-Thought Framework (BRCT)
 
-This outlines the fundamental principles, required files, workflow structure, and essential procedures that govern CRCT, the overarching framework within which all phases of operation function. Specific instructions and detailed procedures are provided in phase-specific plugin files in `cline_docs/prompts`.
+This outlines the fundamental principles, required files, workflow structure, and essential procedures that govern BRCT, the overarching framework within which all phases of operation function. BRCT is an adaptation of the Cline Recursive Chain-of-Thought System (CRCT) specifically designed for business innovation processes. Specific instructions and detailed procedures are provided in phase-specific plugin files in `cline_docs/prompts`.
 
-**Important Clarification:** The CRCT system operates in distinct *phases* (Set-up/Maintenance, Strategy, Execution), controlled **exclusively** by the `current_phase` setting in `.clinerules`. "Plan Mode" is independent of this system's *phases*. Plugin loading is *always* dictated by `current_phase`.
+**Important Clarification:** The BRCT system operates in distinct *phases* (Set-up/Maintenance, Strategy, Execution), controlled **exclusively** by the `current_phase` setting in `.clinerules`. "Plan Mode" is independent of this system's *phases*. Plugin loading is *always* dictated by `current_phase`.
 
 ---
 
@@ -26,12 +26,12 @@ This outlines the fundamental principles, required files, workflow structure, an
 
 ## I. Core Principles
 
-- **Recursive Decomposition**: Recursively break tasks into small, manageable subtasks, organized hierarchically via directories and files.
+- **Business-Focused Recursive Decomposition**: Recursively break business problems into small, manageable components, organized hierarchically via directories and files.
 - **Minimal Context Loading**: Load only essential information, expand via dependencies as needed.
-- **Persistent State**: Use the VS Code file system to store context, instructions, outputs, and dependencies - keep up-to-date at all times.
-- **Explicit Dependency Tracking**: Maintain comprehensive dependency records in `dependency_tracker.md`, `doc_tracker.md`, and mini-trackers.
+- **Persistent State**: Use the VS Code file system to store context, instructions, business concepts, and dependencies - keep up-to-date at all times.
+- **Business-Specific Dependency Tracking**: Maintain comprehensive dependency records in `business_dependency_tracker.md` and mini-trackers, with specialized business dependency types.
 - **Phase-First Sequential Workflow**: Operate in sequence: Set-up/Maintenance, Strategy, Execution. Begin by reading `.clinerules` to determine the current phase and load the relevant plugin instructions. Complete Set-up/Maintenance before proceeding.
-- **Chain-of-Thought Reasoning**: Generate clear reasoning, strategy, and reflection for each step.
+- **Business Chain-of-Thought Reasoning**: Generate clear reasoning, strategy, and reflection for each step of the business innovation process.
 - **Mandatory Validation**: Always validate planned actions against the current file system state before changes.
 - **Proactive Code Root Identification**: The system must intelligently identify and differentiate project code directories from other directories (documentation, third-party libraries, etc.). This is done during **Set-up/Maintenance**. Identified code root directories are stored in `.clinerules`.
 
@@ -47,43 +47,36 @@ These files form the project foundation. *Must be loaded at initialization.* If 
 | `projectbrief.md`     | Defines project mission, objectives, constraints           | `{memory_dir}/`| Create manually with placeholder (e.g., `# Project Brief`)                                                                                    |
 | `productContext.md`   | Explains project purpose and user needs                    | `{memory_dir}/`| Create manually with placeholder (e.g., `# Product Context`)                                                                                  |
 | `activeContext.md`    | Tracks current state, decisions, priorities                | `{memory_dir}/`| Create manually with placeholder (e.g., `# Active Context`)                                                                                   |
-| `dependency_tracker.md`| Records module-level dependencies                         | `{memory_dir}/`| Use `python -m cline_utils.dependency_system.dependency_processor generate-keys src tests --output {memory_dir}/dependency_tracker.md --tracker_type main` |
-| `changelog.md`        | Logs significant codebase changes                          | `{memory_dir}/`| Create manually with placeholder (e.g., `# Changelog`)                                                                                        |
-| `doc_tracker.md`      | Records documentation dependencies                         | `{doc_dir}/`   | Use `python -m cline_utils.dependency_system.dependency_processor generate-keys docs --output {doc_dir}/doc_tracker.md --tracker_type doc`      |
+| `business_dependency_tracker.md`| Records business factor dependencies             | `src/`         | Create manually with initial business factor categories                                                                                          |
+| `changelog.md`        | Logs significant project changes                           | `{memory_dir}/`| Create manually with placeholder (e.g., `# Changelog`)                                                                                        |
+| `progress.md`         | Tracks implementation progress                             | `{memory_dir}/`| Create manually with placeholder including implementation phases                                                                               |
 
 *Notes*:
-- `{memory_dir}` (e.g., `cline_docs/`) is for operational memory; `{doc_dir}` (e.g., `docs/`) is for project documentation. A "module" is a top-level directory within the project code root(s).
-- **For tracker files (`dependency_tracker.md`, `doc_tracker.md`, mini-trackers), do *not* create or modify manually. Always use the `dependency_processor.py` script as specified to ensure correct format and data consistency.**
+- `{memory_dir}` (e.g., `cline_docs/`) is for operational memory; a "business factor" is a key component or element that influences business innovation.
+- For business templates, use the files in `src/business_templates/` as starting points for documenting the business innovation process.
 - For other files, create manually with minimal content if needed (e.g., a title or basic structure).
-- Replace `src tests` and `docs` with actual paths from `[CODE_ROOT_DIRECTORIES]` in `.clinerules` or your documentation directory, respectively.
-- `progress.md` in `{memory_dir}` must also be read and kept up to date.
+- Replace `src` with actual paths from `[CODE_ROOT_DIRECTORIES]` in `.clinerules`.
 
 **`.clinerules` File Format (Example):**
 
 ```
----CLINE_RULES_START---
 [LAST_ACTION_STATE]
 last_action: "System Initialized"
 current_phase: "Set-up/Maintenance"
-next_action: "Identify Code Root Directories"
+next_action: "Initialize Core Files"
 next_phase: "Set-up/Maintenance"
 
 [CODE_ROOT_DIRECTORIES]
 - src
-- tests
-- utils
 
 [LEARNING_JOURNAL]
-- Initial setup completed on March 08, 2025.
-- Identified code roots: src, tests, utils.
----CLINE_RULES_END---
 ```
 
 ---
 
 ## III. Recursive Chain-of-Thought Loop & Plugin Workflow
 
-**Workflow Entry Point & Plugin Loading:** Begin each CRCT session by reading `.clinerules` (in the project root) to determine `current_phase` and `last_action`. **Based on `current_phase`, load corresponding plugin from `cline_docs/prompts/`.** For example, if `.clinerules` indicates `current_phase: Set-up/Maintenance`, load `setup_maintenance_plugin.md` *in conjunction with these Custom instructions*.
+**Workflow Entry Point & Plugin Loading:** Begin each BRCT session by reading `.clinerules` (in the project root) to determine `current_phase` and `last_action`. **Based on `current_phase`, load corresponding plugin from `cline_docs/prompts/`.** For example, if `.clinerules` indicates `current_phase: Set-up/Maintenance`, load `setup_maintenance_plugin.md` *in conjunction with these Custom instructions*.
 
 Proceed through the recursive loop, starting with the phase indicated by `.clinerules`.
 
@@ -97,7 +90,7 @@ Proceed through the recursive loop, starting with the phase indicated by `.cline
 
 ### Phase Transition Checklist
 Before switching phases:
-- **Set-up/Maintenance → Strategy**: Confirm `doc_tracker.md` and `dependency_tracker.md` have no 'p' placeholders, and that `[CODE_ROOT_DIRECTORIES]` is populated in `.clinerules`.
+- **Set-up/Maintenance → Strategy**: Confirm `business_dependency_tracker.md` is populated with initial business factor categories, and that `[CODE_ROOT_DIRECTORIES]` is populated in `.clinerules`.
 - **Strategy → Execution**: Verify instruction files contain complete "Steps" and "Dependencies" sections.
 
 Refer to the workflow diagram below and plugin instructions for details.
@@ -150,10 +143,10 @@ flowchart TD
     N --> B
     subgraph Dependency_Management [Dependency Management]
         D1[Start: Task Initiation]
-        D2[Check dependency_tracker.md]
+        D2[Check business_dependency_tracker.md]
         D3{Dependencies Met?}
         D4[Execute Task]
-        D5[Update dependency_tracker.md]
+        D5[Update business_dependency_tracker.md]
         D7[Load Required Context]
         D8[Complete Prerequisite Tasks]
         D1 --> D2
@@ -172,31 +165,26 @@ flowchart TD
 
 ---
 
-## V. Dependency Tracker Management (Overview)
+## V. Business Dependency Tracking (Overview)
 
-`dependency_tracker.md`, `doc_tracker.md`, and mini-trackers are critical. Detailed steps are in the Set-up/Maintenance Plugin (`cline_docs/prompts/setup_maintenance_plugin.md`). **All tracker management MUST be done using the `dependency_processor.py` script.**
+The `business_dependency_tracker.md` maintains relationships between business factors. Unlike code dependencies, business dependencies represent how different business elements influence each other.
 
-**Tracker Overview Table:**
-| Tracker                | Scope                                      | Granularity           | Location                                  | Priority (Set-up/Maintenance) |
-|-----------------------|--------------------------------------------|-----------------------|-------------------------------------------|------------------------------|
-| `doc_tracker.md`      | `{doc_dir}/` file dependencies            | Doc-to-doc            | `{doc_dir}/`                              | Highest                      |
-| `dependency_tracker.md`| Module-level dependencies                | Module-to-module      | `{memory_dir}/`                           | High                         |
-| Mini-Trackers         | Within-module file/function/doc dependencies | File/function/doc-level | `{module_dir}/{module_dir}_main_instructions.txt` | Low                     |
+**Business Dependency Types:**
+- `M`: Market dependency (relationship with market conditions or customer factors)
+- `O`: Organizational dependency (relationship with internal capabilities or resources)
+- `T`: Technological dependency (relationship with technological capabilities or trends)
+- `F`: Financial dependency (relationship with funding, investment, or financial metrics)
+- `R`: Regulatory dependency (relationship with legal or regulatory factors)
+- `C`: Competitive dependency (relationship with competitor actions or positioning)
+- `S`: Strategic dependency (relationship with strategic decisions or direction)
 
-**Dependency Characters:**
+**Relationship Characters:**
 - `<`: Row depends on column.
 - `>`: Column depends on row.
 - `x`: Mutual dependency.
-- `d`: Documentation dependency.
 - `o`: No dependency (diagonal only).
 - `n`: Verified no dependency.
 - `p`: Placeholder (unverified).
-- `s`: Semantic dependency
-
-**Command Example:**
-```
-python -m cline_utils.dependency_system.dependency_processor get_char "pn5d2n" 3
-```
 
 ---
 
@@ -205,14 +193,14 @@ python -m cline_utils.dependency_system.dependency_processor get_char "pn5d2n" 3
 The MUP must be followed immediately after any state-changing action:
 1. **Update `activeContext.md`**: Summarize action, impact, and new state.
 2. **Update `changelog.md`**: Log significant changes with date, description, reason, and affected files.
-3. **Update `.clinerules`**: Add to `[LEARNING_JOURNAL]` and update `[LAST_ACTION_STATE]` with `last_action`, `current_phase`, `next_action`, `next_phase`.
+3. **Update `.clinerules`**: Update `[LAST_ACTION_STATE]` with `last_action`, `current_phase`, `next_action`, `next_phase`.
 4. **Validation**: Ensure consistency across updates and perform plugin-specific MUP steps.
 
 ---
 
 ## VII. Instruction File Format
 
-Instruction files (`{task_name}_instructions.txt` or `{module_dir}/{module_dir}_main_instructions.txt`):
+Instruction files for business innovation tasks should follow this structure:
 
 ```
 # {Task Name} Instructions
@@ -224,7 +212,7 @@ Instruction files (`{task_name}_instructions.txt` or `{module_dir}/{module_dir}_
 {Background, constraints, context}
 
 ## Dependencies
-{List of files, modules, or tasks}
+{List of business factors or other tasks}
 
 ## Steps
 1. {Step 1}
@@ -236,9 +224,6 @@ Instruction files (`{task_name}_instructions.txt` or `{module_dir}/{module_dir}_
 
 ## Notes
 {Additional considerations}
-
-## Mini Dependency Tracker
-{Mini-tracker for file-level dependencies}
 ```
 
 ---
@@ -248,77 +233,31 @@ Instruction files (`{task_name}_instructions.txt` or `{module_dir}/{module_dir}_
 1. **Pre-Action Verification**: Verify file system state before changes.
 2. **Incremental Execution**: Execute step-by-step, documenting results.
 3. **Error Handling**: Document and resolve command failures.
-4. **Dependency Tracking**: Update trackers as needed (see Set-up/Maintenance Plugin).
+4. **Business Dependency Tracking**: Update business factor relationships as needed.
 5. **MUP**: Follow Core and plugin-specific MUP steps post-action.
 
 ---
 
-## IX. Dependency Processor Command Overview
+## IX. Business Innovation Templates
 
-Located in `cline_utils/`. **All commands are executed through `dependency_processor.py`.** Every command returns a dictionary with at least `status` and `message` keys unless otherwise noted.
+The BRCT framework includes specialized templates in `src/business_templates/` for various aspects of the business innovation process:
 
-**See setup_maintenance_plugin.md for a full list of args and example use**
+1. **Idea Generation Template**: Structured approach to generating business ideas with recursive decomposition
+2. **Idea Evaluation Template**: Framework for evaluating ideas based on feasibility, viability, and desirability criteria
+3. **Business Model Canvas**: Enhanced canvas with recursive analysis and dependency tracking
+4. **SWOT Analysis Template**: Comprehensive SWOT analysis with component-level breakdown
+5. **Market Research Template**: Structured approach to market analysis with recursive decomposition
 
-1. **`generate-keys`**: Initializes a tracker and adds all files/folders within the given root paths. Use this *once* per tracker to set up the initial structure.
-   ```
-   python -m cline_utils.dependency_system.dependency_processor generate-keys path1 path2 --output output_file --tracker_type main|doc|mini
-   ```
-   *Example: `python -m cline_utils.dependency_system.dependency_processor generate-keys src tests --output cline_docs/dependency_tracker.md --tracker_type main`*
-   *Error Note: Fails if paths don't exist; check paths before running.*
-
-2. **`compress`**: Compresses a string using run-length encoding (RLE).
-   ```
-   python -m cline_utils.dependency_system.dependency_processor compress string_to_compress
-   ```
-   *Example: `python -m cline_utils.dependency_system.dependency_processor compress "nnnnnpppdd"`*
-
-3. **`decompress`**: Decompresses a string that was compressed using RLE.
-   ```
-   python -m cline_utils.dependency_system.dependency_processor decompress compressed_string
-   ```
-   *Example: `python -m cline_utils.dependency_system.dependency_processor decompress "n5p3d2"`*
-
-4. **`get_char`**: Gets the character at a specific index in a compressed string.
-   ```
-   python -m cline_utils.dependency_system.dependency_processor get_char compressed_string index
-   ```
-   *Example: `python -m cline_utils.dependency_system.dependency_processor get_char "n5p3d2" 7`*
-
-5. **`set_char`**: Sets a character at a specific index in a compressed string and updates the tracker file.
-   ```
-   python -m cline_utils.dependency_system.dependency_processor set_char index new_char --output output_file --key row_key
-   ```
-   *Example: `python -m cline_utils.dependency_system.dependency_processor set_char 2 x --output docs/doc_tracker.md --key 1A`*
-   *Error Note: Fails if grid is malformed; re-run `generate-keys` to fix.*
-
-6. **`remove-file`**: Removes a file from the tracker.
-   ```
-   python -m cline_utils.dependency_system.dependency_processor remove-file file_to_remove --output output_file
-   ```
-   *Example: `python -m cline_utils.dependency_system.dependency_processor remove-file src/utils/old_file.py --output cline_docs/dependency_tracker.md`*
-
-7. **`suggest-dependencies`**: Suggests dependencies for a tracker based on code analysis or semantic similarity.
-   ```
-   python -m cline_utils.dependency_system.dependency_processor suggest-dependencies --tracker tracker_file --tracker_type main|doc|mini
-   ```
-   *Example: `python -m cline_utils.dependency_system.dependency_processor suggest-dependencies --tracker cline_docs/dependency_tracker.md --tracker_type main`*
-   *Error Note: For `doc` type, requires `metadata.json` from `generate-embeddings`; run it first if missing.*
-
-8. **`generate-embeddings`**: Generates embeddings for files in the given root paths.
-   ```
-   python -m cline_utils.dependency_system.dependency_processor generate-embeddings path1 path2 --output output_dir --model model_name
-   ```
-   *Example: `python -m cline_utils.dependency_system.dependency_processor generate-embeddings src tests --output cline_docs --model all-mpnet-base-v2`*
-   *Error Note: Fails if model isn't installed; ensure `sentence_transformers` is available.*
+Use these templates as starting points for documenting the business innovation process. Each template incorporates chain-of-thought documentation sections to ensure transparency in reasoning and decision-making.
 
 ---
 
 ## X. Plugin Usage Guidance
 
 **Always check `.clinerules` for `current_phase`.**
-- **Set-up/Maintenance**: Initial setup, adding modules/docs, periodic maintenance (`cline_docs/prompts/setup_maintenance_plugin.md`).
-- **Strategy**: Task decomposition, instruction file creation, prioritization (`cline_docs/prompts/strategy_plugin.md`). *NEW* strategy_tasks directory to store detailed plans and strategic approaches.
-- **Execution**: Task execution, code/file modifications (`cline_docs/prompts/execution_plugin.md`).
+- **Set-up/Maintenance**: Initial setup, defining business factors, periodic maintenance (`cline_docs/prompts/setup_maintenance_plugin.md`).
+- **Strategy**: Task decomposition, business idea generation, evaluation, instruction file creation, prioritization (`cline_docs/prompts/strategy_plugin.md`). Use `strategy_tasks` directory to store detailed plans and strategic approaches.
+- **Execution**: Task execution, business model implementation, document creation (`cline_docs/prompts/execution_plugin.md`).
 
 ---
 
@@ -341,7 +280,6 @@ This process is part of the Set-up/Maintenance phase and is performed if the `[C
      - `__pycache__` (Python bytecode)
      - `build`, `dist`, `target` (build output)
      - `.vscode`, `.idea` (IDE configuration)
-     - `3rd_party_docs` (documentation for external libraries)
      - Directories containing primarily configuration files (`.ini`, `.yaml`, `.toml`, `.json`) *unless* those files are clearly part of your project's core logic.
    - **Structure**: If you see a nested structure, with files in folders inside the src folder, such as `src/module1/file1.py`, include `src` and not `src/module1`.
 3. **Chain-of-Thought Reasoning:** For each potential directory, generate a chain of thought explaining *why* it is being considered (or rejected).
@@ -349,12 +287,12 @@ This process is part of the Set-up/Maintenance phase and is performed if the `[C
 5. **MUP**: Follow the Mandatory Update Protocol.
 
 **Example Chain of Thought:**
-"Scanning the project root, I see directories: `.vscode`, `docs`, `cline_docs`, `src`, `cline_utils`, `venv`. `.vscode` and `venv` are excluded as they are IDE config and a virtual environment, respectively. `docs` and `cline_docs` are excluded as they are documentation. `src` contains Python files directly, so it's a strong candidate. `cline_utils` also contains `.py` files and appears to be project-specific, so it’s included. Therefore, I will add `src` and `cline_utils` to the `[CODE_ROOT_DIRECTORIES]` section of `.clinerules`."
+"Scanning the project root, I see directories: `.vscode`, `docs`, `cline_docs`, `src`, `cline_utils`, `venv`. `.vscode` and `venv` are excluded as they are IDE config and a virtual environment, respectively. `docs` and `cline_docs` are excluded as they are documentation. `src` contains business templates directly, so it's a strong candidate. Therefore, I will add `src` to the `[CODE_ROOT_DIRECTORIES]` section of `.clinerules`."
 
 ---
 
 ## XII. Conclusion
 
-The CRCT framework manages complex tasks via recursive decomposition and persistent state. Adhere to this prompt and plugin instructions in `cline_docs/prompts/` for effective task management.
+The BRCT framework adapts the CRCT system for business innovation processes through recursive decomposition and persistent state. Adhere to this prompt and plugin instructions in `cline_docs/prompts/` for effective business innovation management.
 
 **Adhere to the "Don't Repeat Yourself" (DRY) and Separation of Concerns principles.**
