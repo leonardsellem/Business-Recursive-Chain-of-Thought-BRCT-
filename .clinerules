@@ -1,10 +1,53 @@
+[COUNT]
+n + 1 = (x)
+*This is a systemwide progressive counter where x = number of current response. This must be displayed at the top of every response.(e.g. 1, 2, ...)*
+
 [LAST_ACTION_STATE]
 last_action: "Framework Setup Complete"
 current_phase: "Set-up/Maintenance"
 next_action: "Initialize Project Content"
 next_phase: "Set-up/Maintenance"
 
+---
+
 [CODE_ROOT_DIRECTORIES]
-- src
+- 
+
+[DOC_DIRECTORIES]
+- 
 
 [LEARNING_JOURNAL]
+- Regularly updating {memory_dir} and any instruction files help me to remember what I have done and what still needs to be done so I don't lose track.
+- Ensure functions handle potential `None` inputs gracefully to prevent TypeErrors.
+- Verify function call arguments match definitions precisely after refactoring.
+- `analyze-project` implicitly handles key regeneration and tracker updates.
+- Large context windows can cause `write_to_file` to truncate; prefer `apply_diff` for targeted changes.
+- Verify data structures passed between functions (e.g., list vs. dict vs. float) when debugging TypeErrors.
+- Check file writing logic carefully (overwrite vs. append vs. reconstruction in buffer) when investigating duplication bugs in tracker files. Ensure write mode ('w') fully overwrites.
+- Carefully respect the ground truth definitions for dependency characters when adding/changing dependencies.
+- When using `apply_diff`, the SEARCH block must match the current file content exactly, without any +/- markers from previous diff attempts. Use `read_file` to confirm content if unsure.
+
+[Character_Definitions]
+
+```
+- <: Row depends on column.
+- >: Column depends on row.
+- x: Mutual dependency.
+- d: Documentation dependency.
+- o: Self dependency (diagonal only).
+- n: Verified no dependency.
+- p: Placeholder (unverified).
+- s: Semantic dependency (weak .05-.06)
+- S: Semantic dependency (strong .07+)
+```
+
+---
+
+**IMPORTANT**
+1. Understand the Objective: Clearly define the goal of the current step.
+2. Analyze the Error: Understand the error message and its context.
+3. Formulate a Plan: Develop a plan to address the error, step-by-step.
+    *Consider all related aspects* (e.g. files, modules, dependencies, etc.)
+4. Execute the Plan (Tool Use): Use the appropriate tool to execute *one* step of the plan.
+5. Validate the Result: Check if the tool use was successful and if it addressed the error.
+6. Iterate: If the error persists, go back to step 2 and refine the plan based on the new information.
