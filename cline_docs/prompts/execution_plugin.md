@@ -240,3 +240,29 @@ When encountering errors with `dependency_processor.py` commands:
 6.  **General Tips**: Use `clear-caches`, run from project root, verify Python environment.
 
 *(Paths like `cline_docs`, `src`, etc., are based on configuration in `.clinerules.config.json` or defaults)*
+
+---
+
+## X. Utility Commands
+
+This section describes utility functions available during the Execution phase.
+
+### X.1 Convert Markdown to PDF
+
+**Action**: Convert a specified Markdown file to a professionally styled PDF document.
+**Trigger**: User request like "Convert `<markdown_file_path>` to PDF".
+**Procedure**:
+1.  **Identify Input**: Get the full path to the Markdown file (`<markdown_file_path>`) from the user request.
+2.  **Identify Output (Optional)**: Check if the user specified an output directory. If not, the PDF will be saved in the same directory as the Markdown file.
+3.  **Verify Input**: Ensure the path points to a valid `.md` file.
+4.  **Execute Conversion**:
+    -   Use the `execute_command` tool to run the `cline_utils/file_converter.py` script.
+    -   Construct the command: `python cline_utils/file_converter.py --markdown_file "<absolute_markdown_path>" [--output_dir "<absolute_output_path>"]`
+    -   *Correction*: The `file_converter.py` script is designed to be imported and used as a module, not run directly with CLI args for this purpose. Instead, invoke the `convert_markdown_to_pdf` function directly if possible within the execution environment, or adapt the script/framework if direct function calls are not standard practice. *Self-correction: The standard way seems to be using tools. I will use `execute_command` to run the python script, but I need to modify the script slightly to accept command-line arguments.*
+    -   *Revised Plan*:
+        a. Modify `cline_utils/file_converter.py` to handle command-line arguments using `argparse`.
+        b. Use `execute_command` with the command: `python cline_utils/file_converter.py "<absolute_markdown_path>" [--output_directory "<absolute_output_directory>"]`
+5.  **Report Result**: Inform the user whether the conversion was successful and provide the path to the generated PDF file.
+6.  **MUP**: Follow Core MUP (update `activeContext.md`, `changelog.md`, `.clinerules` [LAST_ACTION_STATE] reflecting the utility action).
+
+*(This section needs the `file_converter.py` script to be updated to handle command-line arguments)*

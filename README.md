@@ -1,4 +1,4 @@
-# Business Recursive Chain-of-Thought Framework (BRCT) - v1.1 (based on CRCT v7.2)
+# Business Recursive Chain-of-Thought Framework (BRCT) - v1.1.1 (based on CRCT v7.2)
 
 Welcome to the **Business Recursive Chain-of-Thought Framework (BRCT)**, an adaptation of the Cline Recursive Chain-of-Thought System (CRCT) v7.2 specifically designed for business innovation processes. Built upon the powerful CRCT system, BRCT leverages a recursive, file-based approach to support ideation, evaluation, and implementation of business innovations while maintaining comprehensive dependency tracking between business factors, now enhanced by CRCT's modular dependency system.
 
@@ -18,6 +18,7 @@ Welcome to the **Business Recursive Chain-of-Thought Framework (BRCT)**, an adap
   - Custom dependency types for market, organizational, technological, financial, regulatory, competitive, and strategic dependencies (Needs review for integration with modular system)
 - **Phase-Based Workflow**: Operates in distinct phases—**Set-up/Maintenance**, **Strategy**, **Execution**—controlled by `.clinerules`.
 - **Business Chain-of-Thought Reasoning**: Ensures transparency with step-by-step reasoning and explicit documentation throughout the business innovation process.
+- **Markdown-to-PDF Conversion**: Utility command available in Strategy and Execution phases to convert Markdown files (e.g., reports, deliverables) into professionally styled PDFs using Pandoc and WeasyPrint.
 
 ---
 
@@ -31,7 +32,12 @@ Welcome to the **Business Recursive Chain-of-Thought Framework (BRCT)**, an adap
 
 2. **Install Dependencies**:
    ```bash
+   # Install Python dependencies
    pip install -r requirements.txt
+
+   # Install tools for PDF conversion (macOS with Homebrew)
+   # If not on macOS or not using Homebrew, install Pandoc and WeasyPrint manually
+   brew install pandoc weasyprint
    ```
 
 3. **Set Up Cline Extension**:
@@ -142,6 +148,7 @@ These dependency types are used in the `src/business_dependency_tracker.md` to d
 
 ## Current Status & Future Plans
 
+- **v1.1.1**: Added Markdown-to-PDF conversion utility using Pandoc/WeasyPrint.
 - **v1.1**: Merged with CRCT v7.2, incorporating its modular dependency system, automated operations, and other enhancements.
 - **Next Steps**: Resolve remaining merge conflicts, adapt business dependency tracking to the new modular system, update documentation (`INSTRUCTIONS.md`, prompts), and test the integrated framework.
 - **Future Enhancements**: Planning to add more specialized templates, enhanced visualization for business dependencies, and integration with business intelligence tools.

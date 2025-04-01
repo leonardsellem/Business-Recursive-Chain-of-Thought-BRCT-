@@ -22,9 +22,15 @@ These instructions assume you’re using the Cline VS Code extension with CRCT v
 
 2. **Install Dependencies**:
    ```bash
+   # Install Python dependencies
    pip install -r requirements.txt
+
+   # Install tools for PDF conversion (macOS with Homebrew)
+   # Required for the Markdown-to-PDF feature.
+   # If not on macOS or not using Homebrew, install Pandoc and WeasyPrint manually.
+   brew install pandoc weasyprint
    ```
-   *Includes `sentence-transformers` for embeddings.*
+   *Python dependencies include `sentence-transformers` for embeddings.*
 
 3. **Open in VS Code**:
    - Launch VS Code and open the `cline/` folder.

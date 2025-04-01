@@ -211,3 +211,24 @@ After Core MUP steps (Update `activeContext.md`, `changelog.md`, `.clinerules` [
 5.  Prioritize implementation tasks.
 6.  Create task instructions (in `strategy_tasks/` or using HDTA).
 7.  Follow MUP after each major action.
+
+---
+
+## X. Utility Commands
+
+This section describes utility functions available during the Strategy phase.
+
+### X.1 Convert Markdown to PDF
+
+**Action**: Convert a specified Markdown file (e.g., a strategic report, evaluation summary) to a professionally styled PDF document.
+**Trigger**: User request like "Convert `<markdown_file_path>` to PDF".
+**Procedure**:
+1.  **Identify Input**: Get the full path to the Markdown file (`<markdown_file_path>`) from the user request.
+2.  **Identify Output (Optional)**: Check if the user specified an output directory. If not, the PDF will be saved in the same directory as the Markdown file.
+3.  **Verify Input**: Ensure the path points to a valid `.md` file.
+4.  **Execute Conversion**:
+    -   Use the `execute_command` tool to run the `cline_utils/file_converter.py` script.
+    -   Construct the command: `python cline_utils/file_converter.py "<absolute_markdown_path>" [--output_directory "<absolute_output_directory>"]`
+    -   Ensure the `file_converter.py` script is executable and handles command-line arguments correctly (as updated previously).
+5.  **Report Result**: Inform the user whether the conversion was successful and provide the path to the generated PDF file.
+6.  **MUP**: Follow Core MUP (update `activeContext.md`, `changelog.md`, `.clinerules` [LAST_ACTION_STATE] reflecting the utility action).
