@@ -1,3 +1,5 @@
+# analysis/dependency_analyzer.py
+
 """
 Analysis module for dependency detection and code analysis.
 Parses files to identify imports, function calls, and other dependency indicators.
@@ -12,320 +14,342 @@ import importlib.util
 import uuid
 
 # Import only from utils, core, and io layers
-from cline_utils.dependency_system.utils.path_utils import normalize_path, is_subpath
+# *** Import get_project_root from path_utils ***
+from cline_utils.dependency_system.utils.path_utils import normalize_path, is_subpath, get_file_type as util_get_file_type, get_project_root
 from cline_utils.dependency_system.utils.config_manager import ConfigManager
 from cline_utils.dependency_system.utils.cache_manager import cached, invalidate_dependent_entries
 from cline_utils.dependency_system.core.key_manager import get_key_from_path
-from cline_utils.dependency_system.io.tracker_io import read_tracker_file
 
 logger = logging.getLogger(__name__)
 
-# Regular expressions for dependency detection
+# Regular expressions for dependency detection (refined slightly)
 PYTHON_IMPORT_PATTERN = re.compile(
-    r'(?:from\s+([.\w]+(?:\s*\.\s*[.\w]+)*)\s+import)|(?:import\s+([.\w]+(?:\s*,\s*[.\w]+)*))',
-    re.MULTILINE
+    # Non-capturing groups for structure
+    # from .module import name | from ..module import name | from package.module import name
+    r'^\s*from\s+([.\w]+)\s+import\s+(?:\(|\*|\w+)', re.MULTILINE
+)
+PYTHON_IMPORT_MODULE_PATTERN = re.compile(
+    # import module | import package.module | import module as alias
+    r'^\s*import\s+([.\w]+(?:\s*,\s*[.\w]+)*)', re.MULTILINE
 )
 JAVASCRIPT_IMPORT_PATTERN = re.compile(
-    r'(?:import\s+.*\s+from\s+["\']([^"\']+)["\'])|(?:require\s*\(\s*["\']([^"\']+)["\']\s*\))|(?:import\s*\(\s*["\']([^"\']+)["\']\s*\))'
+    # import ... from 'path'
+    r'import(?:["\'\s]*(?:[\w*{}\n\r\s,]+)from\s*)?["\']([^"\']+)["\']'
+    # require('path')
+    r'|\brequire\s*\(\s*["\']([^"\']+)["\']\s*\)'
+    # import('path')
+    r'|import\s*\(\s*["\']([^"\']+)["\']\s*\)'
 )
-MARKDOWN_LINK_PATTERN = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
-HTML_LINK_PATTERN = re.compile(r'<a\s+(?:[^>]*?\s+)?href=(["\'])([^"\']+)\1')
-CSS_IMPORT_PATTERN = re.compile(r'@import\s+(?:url\s*\(\s*)?["\']?([^"\')\s]+)["\']?(?:\s*\))?')
+MARKDOWN_LINK_PATTERN = re.compile(r'\[(?:[^\]]+)\]\(([^)]+)\)') # Simpler URL capture
+HTML_A_HREF_PATTERN = re.compile(r'<a\s+(?:[^>]*?\s+)?href=(["\'])(?P<url>[^"\']+?)\1', re.IGNORECASE)
+HTML_SCRIPT_SRC_PATTERN = re.compile(r'<script\s+(?:[^>]*?\s+)?src=(["\'])(?P<url>[^"\']+?)\1', re.IGNORECASE)
+HTML_LINK_HREF_PATTERN = re.compile(r'<link\s+(?:[^>]*?\s+)?href=(["\'])(?P<url>[^"\']+?)\1', re.IGNORECASE) # General link, check rel later
+HTML_IMG_SRC_PATTERN = re.compile(r'<img\s+(?:[^>]*?\s+)?src=(["\'])(?P<url>[^"\']+?)\1', re.IGNORECASE)
+CSS_IMPORT_PATTERN = re.compile(r'@import\s+(?:url\s*\(\s*)?["\']?([^"\')\s]+[^"\')]*?)["\']?(?:\s*\))?;', re.IGNORECASE)
 
-# @cached("file_type",
-#        key_func=lambda file_path: f"file_type:{normalize_path(file_path)}:{os.path.getmtime(file_path) if os.path.exists(file_path) else 'missing'}:{os.path.getmtime(ConfigManager().config_path)}")
-def get_file_type(file_path: str) -> str:
-    """
-    Determines the file type based on its extension.
-    
-    Args:
-        file_path: The path to the file.
-    Returns:
-        The file type as a string (e.g., "py", "js", "md", "generic").
-    """
-    if not isinstance(file_path, str):
-        logger.error(f"Invalid file_path type: {type(file_path)}")
-        return "generic"
-    _, ext = os.path.splitext(file_path)
-    ext = ext.lower().lstrip('.')
-    
-    return {
-        "py": "py",
-        "js": "js", "ts": "js", "jsx": "js", "tsx": "js",
-        "md": "md", "rst": "md",
-        "html": "html", "htm": "html",
-        "css": "css"
-    }.get(ext, "generic")
+
+# File type determination (moved to path_utils, keep wrapper here?)
+# Or just use the one from path_utils directly? Let's use the util one.
+# def get_file_type(file_path: str) -> str: ... (removed, use util_get_file_type)
+
 
 @cached("file_analysis",
-       key_func=lambda file_path: f"analyze_file:{normalize_path(file_path)}:{os.path.getmtime(file_path) if os.path.exists(file_path) else 'missing'}:{os.path.getmtime(ConfigManager().config_path)}")
-def analyze_file(file_path: str) -> Dict[str, Any]:
+       key_func=lambda file_path, force=False: f"analyze_file:{normalize_path(file_path)}:{(os.path.getmtime(file_path) if os.path.exists(file_path) else 0)}:{force}")
+def analyze_file(file_path: str, force: bool = False) -> Dict[str, Any]:
     """
     Analyzes a file to identify dependencies, imports, and other metadata.
-    
+    Uses caching based on file path, modification time, and force flag.
+
     Args:
         file_path: Path to the file to analyze
+        force: If True, bypass the cache for this specific file analysis.
     Returns:
-        Dictionary containing analysis results
+        Dictionary containing analysis results or error/skipped status.
     """
-    if not os.path.exists(file_path) or not os.path.isfile(file_path):
-        logger.warning(f"File not found or not a file: {file_path}")
+    norm_file_path = normalize_path(file_path)
+
+    if not os.path.exists(norm_file_path) or not os.path.isfile(norm_file_path):
+        logger.warning(f"File not found or not a file: {norm_file_path}")
         return {"error": "File not found or not a file"}
 
-    # Exclude files based on configuration
+    # Configuration check can happen inside or outside cache check
     config_manager = ConfigManager()
-    excluded_paths = config_manager.get_excluded_dirs()
-    normalized_path = normalize_path(file_path)
+    # *** Use the imported get_project_root function ***
+    project_root = get_project_root()
 
-    if any(normalized_path.startswith(normalize_path(excluded_path)) for excluded_path in excluded_paths):
-        logger.info(f"Skipping analysis of excluded file: {file_path}")
-        return {"skipped": "Excluded path"}
+    # Check exclusions (can be done early)
+    excluded_dirs_rel = config_manager.get_excluded_dirs()
+    excluded_paths_rel = config_manager.get_excluded_paths()
+    excluded_extensions = set(config_manager.get_excluded_extensions())
+
+    excluded_dirs_abs = {normalize_path(os.path.join(project_root, p)) for p in excluded_dirs_rel}
+    excluded_paths_abs = {normalize_path(os.path.join(project_root, p)) for p in excluded_paths_rel}
+
+    if any(is_subpath(norm_file_path, excluded) for excluded in excluded_dirs_abs.union(excluded_paths_abs)) or \
+       os.path.splitext(norm_file_path)[1].lower().lstrip('.') in excluded_extensions or \
+       os.path.basename(norm_file_path).endswith("_module.md"):
+        logger.debug(f"Skipping analysis of excluded/tracker file: {norm_file_path}")
+        return {"skipped": True, "reason": "Excluded path, extension, or tracker file"}
+
 
     try:
-        file_type = get_file_type(file_path)
-        
-        analysis_result = {
-            "file_path": file_path,
+        # Use the imported utility function
+        file_type = util_get_file_type(norm_file_path)
+
+        analysis_result: Dict[str, Any] = {
+            "file_path": norm_file_path, # Store normalized path
             "file_type": file_type,
-            "imports": [],
-            "functions": [],
-            "classes": [],
-            "references": [],
-            "links": []
+            # Initialize lists/dicts for common elements
+            "imports": [], # List of imported module/file strings/paths
+            "links": [],   # List of {"url": str, "line": int} for MD/HTML
+            # Type-specific keys will be added by helpers
         }
-        
+
+        # Read content once
+        try:
+            with open(norm_file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except FileNotFoundError:
+             logger.warning(f"File disappeared during analysis: {norm_file_path}")
+             return {"error": "File disappeared during analysis"}
+        except UnicodeDecodeError as e:
+            logger.error(f"Encoding error reading {norm_file_path}: {e}")
+            return {"error": "Encoding error", "details": str(e)}
+        except Exception as e:
+            logger.error(f"Error reading file {norm_file_path}: {e}", exc_info=True)
+            return {"error": "File read error", "details": str(e)}
+
+
         # Analyze based on file type
         if file_type == "py":
-            _analyze_python_file(file_path, analysis_result)
+            _analyze_python_file(norm_file_path, content, analysis_result)
         elif file_type == "js":
-            _analyze_javascript_file(file_path, analysis_result)
+            _analyze_javascript_file(norm_file_path, content, analysis_result)
         elif file_type == "md":
-            _analyze_markdown_file(file_path, analysis_result)
+            _analyze_markdown_file(norm_file_path, content, analysis_result)
         elif file_type == "html":
-            _analyze_html_file(file_path, analysis_result)
+            _analyze_html_file(norm_file_path, content, analysis_result)
         elif file_type == "css":
-            _analyze_css_file(file_path, analysis_result)
-        
+            _analyze_css_file(norm_file_path, content, analysis_result)
+        # else: generic files have no specific analysis beyond file_type
+
+        # Add size for potential future use
+        analysis_result["size"] = os.path.getsize(norm_file_path)
+
         return analysis_result
-    except FileNotFoundError:
-        logger.warning(f"File not found during analysis: {file_path}")
-        return {"error": "File not found"}
-    except UnicodeDecodeError as e:
-        logger.error(f"Encoding error in {file_path}: {str(e)}")
-        return {"error": "Encoding error"}
-    except Exception as e:
-        logger.exception(f"Unexpected error analyzing {file_path}: {str(e)}")
-        return {"error": str(e)}
 
-def _analyze_python_file(file_path: str, result: Dict[str, Any]) -> None:
-    """
-    Analyzes a Python file for imports, functions, classes, and references.
-    
-    Args:
-        file_path: Path to the Python file
-        result: Dictionary to store analysis results (modified in-place)
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Extract imports using regex
-        import_matches = PYTHON_IMPORT_PATTERN.findall(content)
-        result["imports"] = [match[0] or match[1] for match in import_matches if match[0] or match[1]]
-        
-        # Use AST for detailed analysis
-        try:
-            tree = ast.parse(content, filename=file_path)
-            # Extract functions
-            result["functions"] = [
-                {"name": node.name, "args": [arg.arg for arg in node.args.args],
-                 "line": node.lineno}
-                for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
-            ]
-            # Extract classes
-            result["classes"] = [
-                {"name": node.name, "methods": [m.name for m in node.body if isinstance(m, ast.FunctionDef)],
-                 "line": node.lineno}
-                for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
-            ]
-            # Extract references (variables, attributes)
-            result["references"] = [
-                {"name": node.id, "line": node.lineno}
-                for node in ast.walk(tree) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
-            ]
-        except SyntaxError:
-            logger.warning(f"Syntax error in {file_path}, using regex only")
-    except FileNotFoundError:
-        logger.error(f"File not found: {file_path}")
-    except UnicodeDecodeError as e:
-        logger.error(f"Encoding error in {file_path}: {str(e)}")
     except Exception as e:
-        logger.error(f"Unexpected error analyzing Python file {file_path}: {str(e)}")
+        logger.exception(f"Unexpected error analyzing {norm_file_path}: {e}")
+        return {"error": "Unexpected analysis error", "details": str(e)}
 
-def _analyze_javascript_file(file_path: str, result: Dict[str, Any]) -> None:
-    """
-    Analyzes a JavaScript file for imports and references.
-    
-    Args:
-        file_path: Path to the JavaScript file
-        result: Dictionary to store analysis results (modified in-place)
-    """
+# --- Analysis Helper Functions ---
+
+def _analyze_python_file(file_path: str, content: str, result: Dict[str, Any]) -> None:
+    """Analyzes Python file content using AST."""
+    result["imports"] = [] # Reset imports, AST is primary source now
+    result["functions"] = []
+    result["classes"] = []
+    result["calls"] = []
+    result["attribute_accesses"] = []
+    result["inheritance"] = []
+    # result["references"] = [] # Keep optional general references if needed
+
+    def _get_full_name_str(node: ast.AST) -> Optional[str]:
+        if isinstance(node, ast.Name): return node.id
+        if isinstance(node, ast.Attribute):
+            base = _get_full_name_str(node.value)
+            return f"{base}.{node.attr}" if base else node.attr
+        if isinstance(node, ast.Subscript): # Handle subscript like obj[index]
+             base = _get_full_name_str(node.value)
+             # Represent index simply for now, could be complex
+             index_repr = "..." # Simplified representation
+             if isinstance(node.slice, ast.Constant): index_repr = repr(node.slice.value)
+             elif isinstance(node.slice, ast.Name): index_repr = node.slice.id
+             return f"{base}[{index_repr}]" if base else f"[{index_repr}]"
+        return None # Unhandled complex types
+
+    def _get_source_object_str(node: ast.AST) -> Optional[str]:
+         # Helper to get the object part, e.g., 'os' in 'os.path.join'
+        if isinstance(node, ast.Attribute): return _get_full_name_str(node.value)
+        if isinstance(node, ast.Call): return _get_full_name_str(node.func) # If calling result of another call
+        if isinstance(node, ast.Subscript): return _get_full_name_str(node.value)
+        return None # Direct name calls have no separate source object here
+
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Extract imports
-        import_matches = JAVASCRIPT_IMPORT_PATTERN.findall(content)
-        result["imports"] = [match[0] or match[1] or match[2] for match in import_matches if any(match)]
-        
-        # Extract functions
-        function_pattern = re.compile(r'(?:async\s+)?function\s+([a-zA-Z_$][\w$]*)\s*\(([^)]*)\)')
-        function_matches = function_pattern.findall(content)
-        result["functions"] = [
-            {"name": name, "args": [arg.strip() for arg in args.split(',') if arg.strip()],
-             "line": content[:content.find(f"function {name}")].count('\n') + 1}
-            for name, args in function_matches
-        ]
-        
-        # Extract arrow functions
-        arrow_pattern = re.compile(r'(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:\(([^)]*)\)|([a-zA-Z_$][\w$]*))\s*=>')
-        arrow_matches = arrow_pattern.findall(content)
-        for name, args1, args2 in arrow_matches:
-            args = args1 or args2
-            result["functions"].append({
-                "name": name,
-                "args": [arg.strip() for arg in args.split(',') if arg.strip()],
-                "line": content[:content.find(name)].count('\n') + 1,
-                "type": "arrow"
-            })
-        
-        # Extract classes
+        tree = ast.parse(content, filename=file_path)
+
+        for node in ast.walk(tree):
+            # Imports
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    result["imports"].append(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                 module_name = node.module or "" # Handle 'from . import ...'
+                 # Combine relative level dots with module name for context
+                 relative_prefix = "." * node.level
+                 full_import_source = f"{relative_prefix}{module_name}"
+                 # Store the source ('..utils') and the specific names imported
+                 # For dependency suggestion, often just the source is enough
+                 result["imports"].append(full_import_source)
+                 # Optionally store imported names:
+                 # result["imported_names_from"] = [(name.name, name.asname) for name in node.names]
+
+            # Functions/Classes
+            elif isinstance(node, ast.FunctionDef):
+                result["functions"].append({ "name": node.name, "line": node.lineno })
+            elif isinstance(node, ast.AsyncFunctionDef):
+                 result["functions"].append({ "name": node.name, "line": node.lineno, "async": True })
+            elif isinstance(node, ast.ClassDef):
+                result["classes"].append({ "name": node.name, "line": node.lineno })
+                # Inheritance
+                for base in node.bases:
+                    base_full_name = _get_full_name_str(base)
+                    if base_full_name:
+                        result["inheritance"].append({
+                            "class_name": node.name, "base_class_name": base_full_name,
+                            "potential_source": base_full_name, # Needs resolution via imports
+                            "line": base.lineno if hasattr(base, 'lineno') else node.lineno
+                        })
+
+            # Calls / Attribute Access
+            elif isinstance(node, ast.Call):
+                target_full_name = _get_full_name_str(node.func)
+                potential_source = _get_source_object_str(node.func)
+                if target_full_name:
+                     result["calls"].append({
+                        "target_name": target_full_name, # Full call chain (e.g., os.path.join)
+                        "potential_source": potential_source, # Object part (e.g., os.path)
+                        "line": node.lineno
+                     })
+            elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+                 attribute_name = node.attr
+                 potential_source = _get_full_name_str(node.value)
+                 if potential_source: # Ensure we have a source object
+                      result["attribute_accesses"].append({
+                         "target_name": attribute_name,
+                         "potential_source": potential_source,
+                         "line": node.lineno
+                      })
+
+    except SyntaxError as e:
+        logger.warning(f"AST Syntax Error in {file_path}: {e}. Analysis may be incomplete.")
+        result["error"] = f"AST Syntax Error: {e}"
+        # Fallback to regex imports if AST fails completely? Or just report error.
+    except Exception as e:
+         logger.exception(f"Unexpected AST analysis error in {file_path}: {e}")
+         result["error"] = f"Unexpected AST analysis error: {e}"
+
+
+def _analyze_javascript_file(file_path: str, content: str, result: Dict[str, Any]) -> None:
+    """Analyzes JavaScript file content using regex."""
+    # Extract imports (combined pattern results)
+    import_matches = JAVASCRIPT_IMPORT_PATTERN.finditer(content)
+    # Extract the first non-null capture group for each match
+    result["imports"] = [m.group(1) or m.group(2) or m.group(3) for m in import_matches if m]
+
+    # Basic function/class extraction (can be improved with TS parser if needed)
+    result["functions"] = []
+    try: # Regex can be complex, wrap in try/except
+        func_pattern = re.compile(r'(?:async\s+)?function\s*\*?\s*([a-zA-Z_$][\w$]*)\s*\([^)]*\)')
+        for match in func_pattern.finditer(content):
+            result["functions"].append({"name": match.group(1), "line": content[:match.start()].count('\n') + 1})
+        # Arrow functions assigned to vars/consts
+        arrow_pattern = re.compile(r'(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>')
+        for match in arrow_pattern.finditer(content):
+             result["functions"].append({"name": match.group(1), "line": content[:match.start()].count('\n') + 1, "type": "arrow"})
+    except Exception as e:
+        logger.warning(f"Regex error during JS function analysis in {file_path}: {e}")
+
+    result["classes"] = []
+    try:
         class_pattern = re.compile(r'class\s+([a-zA-Z_$][\w$]*)')
-        class_matches = class_pattern.findall(content)
-        result["classes"] = [
-            {"name": name, "line": content[:content.find(f"class {name}")].count('\n') + 1}
-            for name in class_matches
-        ]
-    except FileNotFoundError:
-        logger.error(f"File not found: {file_path}")
-    except UnicodeDecodeError as e:
-        logger.error(f"Encoding error in {file_path}: {str(e)}")
+        for match in class_pattern.finditer(content):
+            result["classes"].append({"name": match.group(1), "line": content[:match.start()].count('\n') + 1})
     except Exception as e:
-        logger.error(f"Unexpected error analyzing JavaScript file {file_path}: {str(e)}")
+         logger.warning(f"Regex error during JS class analysis in {file_path}: {e}")
 
-def _analyze_markdown_file(file_path: str, result: Dict[str, Any]) -> None:
-    """
-    Analyzes a Markdown file for links and references.
-    
-    Args:
-        file_path: Path to the Markdown file
-        result: Dictionary to store analysis results (modified in-place)
-    """
+
+def _analyze_markdown_file(file_path: str, content: str, result: Dict[str, Any]) -> None:
+    """Analyzes Markdown file content using regex."""
+    result["links"] = []
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Extract links
-        link_matches = MARKDOWN_LINK_PATTERN.findall(content)
-        result["links"] = [
-            {"text": text, "url": url,
-             "line": content[:content.find(f"[{text}]({url})")].count('\n') + 1}
-            for text, url in link_matches
-        ]
-        
-        # Extract code blocks
+        for match in MARKDOWN_LINK_PATTERN.finditer(content):
+            url = match.group(1)
+            # Basic filtering of external/anchor links
+            if not url.startswith(('#', 'http:', 'https:', 'mailto:', 'tel:')):
+                result["links"].append({"url": url, "line": content[:match.start()].count('\n') + 1})
+    except Exception as e:
+         logger.warning(f"Regex error during MD link analysis in {file_path}: {e}")
+
+    result["code_blocks"] = []
+    try:
         code_block_pattern = re.compile(r'```(\w+)?\n(.*?)```', re.DOTALL)
-        code_blocks = code_block_pattern.findall(content)
-        result["code_blocks"] = [
-            {"language": lang or "unspecified", "content": block.strip(),
-             "line": content[:content.find(f"```{lang or ''}")].count('\n') + 1}
-            for lang, block in code_blocks
-        ]
-    except FileNotFoundError:
-        logger.error(f"File not found: {file_path}")
-    except UnicodeDecodeError as e:
-        logger.error(f"Encoding error in {file_path}: {str(e)}")
+        for match in code_block_pattern.finditer(content):
+             lang = match.group(1) or "text" # Default to text if no language specified
+             block_content = match.group(2)
+             result["code_blocks"].append({
+                 "language": lang.lower(),
+                 # "content": block_content, # Optional: store content if needed later
+                 "line": content[:match.start()].count('\n') + 1
+             })
     except Exception as e:
-        logger.error(f"Unexpected error analyzing Markdown file {file_path}: {str(e)}")
+         logger.warning(f"Regex error during MD code block analysis in {file_path}: {e}")
 
-def _analyze_html_file(file_path: str, result: Dict[str, Any]) -> None:
-    """
-    Analyzes an HTML file for links, scripts, and stylesheet references.
-    
-    Args:
-        file_path: Path to the HTML file
-        result: Dictionary to store analysis results (modified in-place)
-    """
+
+def _analyze_html_file(file_path: str, content: str, result: Dict[str, Any]) -> None:
+    """Analyzes HTML file content using regex."""
+    result["links"] = [] # For <a> tags
+    result["scripts"] = [] # For <script src="...">
+    result["stylesheets"] = [] # For <link rel="stylesheet" href="...">
+    result["images"] = [] # For <img src="...">
+
+    def find_resources(pattern, type_list):
+        try:
+            for match in pattern.finditer(content):
+                url = match.group("url")
+                 # Basic filtering
+                if url and not url.startswith(('#', 'http:', 'https:', 'mailto:', 'tel:', 'data:')):
+                     type_list.append({"url": url, "line": content[:match.start()].count('\n') + 1})
+        except Exception as e:
+            logger.warning(f"Regex error during HTML {type(type_list).__name__} analysis in {file_path}: {e}")
+
+    find_resources(HTML_A_HREF_PATTERN, result["links"])
+    find_resources(HTML_SCRIPT_SRC_PATTERN, result["scripts"])
+    find_resources(HTML_IMG_SRC_PATTERN, result["images"])
+
+    # Special handling for stylesheets to check 'rel' attribute
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Extract links
-        link_matches = HTML_LINK_PATTERN.findall(content)
-        result["links"] = [
-            {"url": url,
-             "line": content[:content.find(f'href={quote}{url}{quote}')].count('\n') + 1 if content.find(f'href={quote}{url}{quote}') != -1 else 1}
-            for quote, url in link_matches
-        ]
-        
-        # Extract script tags
-        script_pattern = re.compile(r'<script\s+(?:[^>]*?\s+)?src=(["\'])([^"\']+)\1')
-        script_matches = script_pattern.findall(content)
-        result["scripts"] = [
-            {"src": src,
-             "line": content[:content.find(f'src={quote}{src}{quote}')].count('\n') + 1 if content.find(f'src={quote}{src}{quote}') != -1 else 1}
-            for quote, src in script_matches
-        ]
-        
-        # Extract stylesheet links
-        style_pattern = re.compile(r'<link\s+(?:[^>]*?\s+)?href=(["\'])([^"\']+)\1[^>]*?rel=(["\'])stylesheet\3')
-        style_matches = style_pattern.findall(content)
-        result["stylesheets"] = [
-            {"href": href,
-             "line": content[:content.find(f'href={quote1}{href}{quote1}')].count('\n') + 1 if content.find(f'href={quote1}{href}{quote1}') != -1 else 1}
-            for quote1, href, quote2 in style_matches
-        ]
-    except FileNotFoundError:
-        logger.error(f"File not found: {file_path}")
-    except UnicodeDecodeError as e:
-        logger.error(f"Encoding error in {file_path}: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error analyzing HTML file {file_path}: {str(e)}")
+        link_tag_pattern = re.compile(r'<link([^>]+)>', re.IGNORECASE)
+        href_pattern = re.compile(r'href=(["\'])(?P<url>[^"\']+?)\1', re.IGNORECASE)
+        rel_pattern = re.compile(r'rel=(["\'])stylesheet\1', re.IGNORECASE)
 
-def _analyze_css_file(file_path: str, result: Dict[str, Any]) -> None:
-    """
-    Analyzes a CSS file for imports and references.
-    
-    Args:
-        file_path: Path to the CSS file
-        result: Dictionary to store analysis results (modified in-place)
-    """
+        for link_match in link_tag_pattern.finditer(content):
+            tag_content = link_match.group(1)
+            href_match = href_pattern.search(tag_content)
+            rel_match = rel_pattern.search(tag_content)
+
+            if href_match and rel_match:
+                url = href_match.group("url")
+                if url and not url.startswith(('#', 'http:', 'https:', 'mailto:', 'tel:', 'data:')):
+                    result["stylesheets"].append({"url": url, "line": content[:link_match.start()].count('\n') + 1})
+    except Exception as e:
+         logger.warning(f"Regex error during HTML stylesheet analysis in {file_path}: {e}")
+
+
+def _analyze_css_file(file_path: str, content: str, result: Dict[str, Any]) -> None:
+    """Analyzes CSS file content using regex."""
+    result["imports"] = [] # For @import rules
+
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Extract imports
-        import_matches = CSS_IMPORT_PATTERN.findall(content)
-        result["imports"] = [
-            {"url": url,
-             "line": content[:content.find(url)].count('\n') + 1 if content.find(url) != -1 else 1}
-            for url in import_matches
-        ]
-        
-        # Extract selectors
-        selector_pattern = re.compile(r'([.#][\w-]+)\s*\{')
-        selector_matches = selector_pattern.findall(content)
-        result["selectors"] = [
-            {"selector": selector,
-             "line": content[:content.find(f'{selector} {{')].count('\n') + 1 if content.find(f'{selector} {{') != -1 else 1}
-            for selector in selector_matches
-        ]
-    except FileNotFoundError:
-        logger.error(f"File not found: {file_path}")
-    except UnicodeDecodeError as e:
-        logger.error(f"Encoding error in {file_path}: {str(e)}")
+        for match in CSS_IMPORT_PATTERN.finditer(content):
+             url = match.group(1)
+             if url and not url.startswith(('#', 'http:', 'https:', 'data:')):
+                  result["imports"].append({"url": url.strip(), "line": content[:match.start()].count('\n') + 1})
     except Exception as e:
-        logger.error(f"Unexpected error analyzing CSS file {file_path}: {str(e)}")
+        logger.warning(f"Regex error during CSS import analysis in {file_path}: {e}")
 
+    # Optional: Extract selectors, font-face src, etc. if needed later
+    # result["selectors"] = []
+    # result["font_faces"] = []
 
-# End of file
+# --- End of dependency_analyzer.py ---

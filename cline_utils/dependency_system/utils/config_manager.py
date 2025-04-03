@@ -124,6 +124,19 @@ DEFAULT_CONFIG = {
     ]              # <-- END ADDED SECTION
 }
 
+# Define character priorities (Higher number = higher priority) - Centralized definition
+# Conforms to the existing convention in dependency_suggester.py
+CHARACTER_PRIORITIES = {
+    'x': 5,
+    '<': 4, '>': 4,
+    'S': 3,
+    's': 2, 'd': 2,
+    'n': 1, 'p': 1, 'o': 1,
+    '-': 0, # Placeholder_char (Assign lowest numeric priority > 0)
+    ' ': 0  # Empty_char
+}
+DEFAULT_PRIORITY = 0 # Default for unknown characters (lowest priority)
+
 class ConfigManager:
     """
     Configuration manager for dependency tracking system.
@@ -367,10 +380,10 @@ class ConfigManager:
 
     def get_code_root_directories(self) -> List[str]:
         """
-        Get list of code root directories from .clinerules.
+        Get list of code root directories from .clinerules, sorted alphabetically.
 
         Returns:
-            List of code root directories
+            Sorted list of code root directories
         """
         from .cache_manager import cached
 
@@ -390,21 +403,28 @@ class ConfigManager:
                         continue
                     if in_code_root_section:
                         if line.startswith("-"):
-                            code_root_dirs.append(line[2:].strip())
-                        elif line.startswith("["):
-                            break
+                            # Normalize path *before* adding to list
+                            path_part = line[1:].strip() # Get content after '-'
+                            if path_part: # Ensure it's not just '-'
+                                code_root_dirs.append(normalize_path(path_part))
+                        elif line.startswith("["): break # Reached next section
+            except FileNotFoundError:
+                logger.warning("'.clinerules' file not found. Cannot read code root directories.")
             except Exception as e:
-                logger.error(f"Error reading .clinerules: {e}")
-            return [normalize_path(d) for d in code_root_dirs]
+                logger.error(f"Error reading .clinerules for code roots: {e}")
+            # *** SORT the result alphabetically ***
+            code_root_dirs.sort()
+            logger.debug(f"Found and sorted code roots: {code_root_dirs}")
+            return code_root_dirs
 
         return _get_code_root_directories(self)
 
     def get_doc_directories(self) -> List[str]:
         """
-        Get list of doc directories from .clinerules.
+        Get list of doc directories from .clinerules, sorted alphabetically.
 
         Returns:
-            List of doc directories
+            Sorted list of doc directories
         """
         from .cache_manager import cached
 
@@ -424,12 +444,19 @@ class ConfigManager:
                         continue
                     if in_doc_section:
                         if line.startswith("-"):
-                            doc_dirs.append(line[2:].strip())
-                        elif line.startswith("["):
-                            break
+                             # Normalize path *before* adding to list
+                            path_part = line[1:].strip() # Get content after '-'
+                            if path_part: # Ensure it's not just '-'
+                                doc_dirs.append(normalize_path(path_part))
+                        elif line.startswith("["): break # Reached next section
+            except FileNotFoundError:
+                 logger.warning("'.clinerules' file not found. Cannot read doc directories.")
             except Exception as e:
-                logger.error(f"Error reading .clinerules: {e}")
-            return [normalize_path(d) for d in doc_dirs]
+                logger.error(f"Error reading .clinerules for doc dirs: {e}")
+            # *** SORT the result alphabetically ***
+            doc_dirs.sort()
+            logger.debug(f"Found and sorted doc dirs: {doc_dirs}")
+            return doc_dirs
 
         return _get_doc_directories(self)
 
@@ -479,3 +506,17 @@ class ConfigManager:
         """
         self._config = DEFAULT_CONFIG.copy()
         return self._save_config()
+
+    def get_char_priority(self, char: str) -> int:
+        """
+        Get the priority tier for a given dependency character.
+        Higher numbers indicate higher priority.
+
+        Args:
+            char: The dependency character.
+
+        Returns:
+            The priority tier (integer).
+        """
+        # Uses the centrally defined dictionary
+        return CHARACTER_PRIORITIES.get(char, DEFAULT_PRIORITY)

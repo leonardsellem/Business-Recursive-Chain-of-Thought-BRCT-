@@ -37,10 +37,6 @@ logger = logging.getLogger(__name__)
 # s: Semantic dependency (weak .06-.07) - Adjusted based on .clinerules
 # S: Semantic dependency (strong .07+) - Added based on .clinerules
 
-# REMOVED: Hardcoded thresholds. Will read from ConfigManager.
-# suggestion_threshold_s_weak = 0.6
-# suggestion_threshold_S_strong = 0.7
-
 def clear_caches():
     """Clear all internal caches."""
     clear_all_caches()
@@ -108,47 +104,201 @@ def suggest_dependencies(file_path: str, key_map: Dict[str, str], project_root: 
 
 # --- Tracker Type Specific Suggestion Logic (Adapted for character assignment) ---
 
-# Note: suggest_main_dependencies logic seems different, more about aggregating module level.
-# The current project_analyzer calls suggest_dependencies per file, so we focus on file-level suggestions first.
-# If module-level aggregation is needed later, project_analyzer might handle it.
+def _identify_structural_dependencies(source_path: str, source_analysis: Dict[str, Any],
+                                     key_map: Dict[str, str], project_root: str) -> List[Tuple[str, str]]:
+    """
+    Identifies dependencies based on AST analysis (calls, attribute access, inheritance).
+    Returns list of tuples (dependency_key, dependency_character).
+    """
+    suggestions = []
+    if not source_analysis: # Handle case where analysis might be None or empty
+        return []
+
+    imports_data = source_analysis.get("imports", []) # Raw import strings/modules
+    calls = source_analysis.get("calls", [])
+    attributes = source_analysis.get("attribute_accesses", [])
+    inheritance = source_analysis.get("inheritance", [])
+    source_dir = os.path.dirname(source_path)
+    path_to_key = {v: k for k, v in key_map.items()} # For faster path lookup
+
+    # --- Helper to build an import map using AST ---
+    import_map_cache = {} # Cache import maps per source file
+    def _build_import_map(current_source_path: str) -> Dict[str, str]:
+        """ Parses a Python file and builds a map of imported names to their resolved module paths. """
+        norm_source_path = normalize_path(current_source_path)
+        if norm_source_path in import_map_cache:
+            return import_map_cache[norm_source_path]
+
+        local_import_map: Dict[str, str] = {} # name -> absolute_module_path
+        try:
+            with open(norm_source_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            tree = ast.parse(content, filename=norm_source_path)
+            current_source_dir = os.path.dirname(norm_source_path)
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        module_name = alias.name
+                        imported_name = alias.asname or module_name # Use alias if present
+                        # Resolve module_name to path(s)
+                        possible_paths = _convert_python_import_to_paths(module_name, current_source_dir, project_root)
+                        if possible_paths:
+                             # Use the first resolved path (assuming it's the correct one)
+                            local_import_map[imported_name] = normalize_path(possible_paths[0])
+
+                elif isinstance(node, ast.ImportFrom):
+                    module_name = node.module or "" # Can be None for relative imports like 'from . import foo'
+                    level = node.level # For relative imports
+
+                    # Construct the full base module name for resolution, handling relative imports
+                    if level > 0:
+                        # Relative import: Calculate base path based on level
+                        # level=1: current_dir, level=2: parent, level=3: grandparent...
+                        base_dir_for_relative = current_source_dir
+                        for _ in range(level - 1):
+                            base_dir_for_relative = os.path.dirname(base_dir_for_relative)
+
+                        if module_name: # e.g., from ..utils import config
+                            # Resolve module_name relative to the calculated base_dir_for_relative
+                             full_module_name_for_path = module_name # Use the module name part directly for resolution
+                        else: # e.g., from . import config -> module_name is None
+                            full_module_name_for_path = "" # Base directory itself
+                    else: # level == 0 (absolute import)
+                        full_module_name_for_path = module_name
+
+                    # Resolve the base module path using the context
+                    # Pass the correct base directory for relative resolution if level > 0
+                    resolve_from_dir = base_dir_for_relative if level > 0 else current_source_dir
+                    possible_base_paths = _convert_python_import_to_paths(full_module_name_for_path, resolve_from_dir, project_root, is_from_import=True, relative_level=level)
+
+                    if possible_base_paths:
+                        resolved_base_path = normalize_path(possible_base_paths[0]) # Assume first is correct base module/package path
+
+                        for alias in node.names:
+                            original_name = alias.name
+                            imported_name = alias.asname or original_name # Use alias if present
+
+                            # Map the imported name (or alias) to the RESOLVED BASE MODULE PATH
+                            local_import_map[imported_name] = resolved_base_path
+                    # else: logger.warning(f"Could not resolve base path for ImportFrom: module='{module_name}', level={level} in {norm_source_path}")
+
+        except Exception as e:
+            logger.error(f"Error building import map for {norm_source_path}: {e}", exc_info=True)
+
+        import_map_cache[norm_source_path] = local_import_map
+        # logger.debug(f"Built import map for {norm_source_path}: {local_import_map}") # Optional: Debug logging
+        return local_import_map
+
+    # --- Build the import map for the current source file ---
+    import_map = _build_import_map(source_path)
+
+    # --- Updated helper to resolve potential source name to key using the import map ---
+    resolved_cache = {} # Cache resolution results
+    def _resolve_source_to_key(potential_source_name: Optional[str]) -> Optional[str]:
+        """ Resolves a name (potentially dotted) to a module key using the pre-built import map. """
+        if not potential_source_name:
+            return None
+
+        cache_key = (source_path, potential_source_name) # Cache per source file + name
+        if cache_key in resolved_cache:
+            return resolved_cache[cache_key]
+
+        # Check the primary name part (e.g., 'os' in 'os.path.join', 'aliased_func' in 'aliased_func()')
+        base_name = potential_source_name.split('.')[0]
+
+        resolved_module_path = import_map.get(base_name)
+
+        found_key = None
+        if resolved_module_path:
+            # Convert the resolved module path to its key
+            found_key = path_to_key.get(resolved_module_path)
+            # if not found_key:
+            #      logger.debug(f"Resolved path '{resolved_module_path}' for '{base_name}' (from '{potential_source_name}' in {source_path}) not found in path_to_key map.")
+
+        # Cache and return result (even if None)
+        resolved_cache[cache_key] = found_key
+        # logger.debug(f"Resolving '{potential_source_name}' in {source_path} -> base '{base_name}' -> path '{resolved_module_path}' -> key '{found_key}'") # Optional: Debug logging
+        return found_key
+    # --- End Updated Helper ---
+
+    # Get source key once for logging
+    source_key = get_key_from_path(source_path, key_map)
+
+    # Process Calls
+    for call in calls:
+        # Resolve the object being called on (e.g., 'os' in 'os.path.join')
+        target_key = _resolve_source_to_key(call.get("potential_source"))
+        if target_key and target_key != source_key: # Avoid self-dependency via structure
+            logger.debug(f"Suggesting {source_key} -> {target_key} (>) due to call: {call.get('target_name')}")
+            suggestions.append((target_key, ">"))
+
+    # Process Attribute Accesses
+    for attr in attributes:
+        # Resolve the object whose attribute is being accessed
+        target_key = _resolve_source_to_key(attr.get("potential_source"))
+        if target_key and target_key != source_key:
+            logger.debug(f"Suggesting {source_key} -> {target_key} (>) due to attribute access: {attr.get('potential_source')}.{attr.get('target_name')}")
+            suggestions.append((target_key, ">"))
+
+    # Process Inheritance
+    for inh in inheritance:
+        # Resolve the module/file containing the base class
+        target_key = _resolve_source_to_key(inh.get("potential_source"))
+        if target_key and target_key != source_key:
+            logger.debug(f"Suggesting {source_key} -> {target_key} (<) due to inheritance from: {inh.get('base_class_name')}")
+            suggestions.append((target_key, "<")) # Inheritance implies Row depends on Column (<)
+
+    return list(set(suggestions)) # Remove duplicates
+
 
 def suggest_python_dependencies(file_path: str, key_map: Dict[str, str], project_root: str, file_analysis_results: Dict[str, Any], threshold: float) -> List[Tuple[str, str]]:
     """
-    Suggest dependencies for a Python file, assigning characters.
+    Suggest dependencies for a Python file using imports, structural analysis, and semantics.
 
     Args:
         file_path: Path to the Python file (normalized)
         key_map: Dictionary mapping keys to file paths
         project_root: Root directory of the project
-        file_analysis_results: Pre-computed analysis results for files
+        file_analysis_results: Pre-computed analysis results for files (expects normalized paths)
         threshold: Confidence threshold for *semantic* suggestions
     Returns:
         List of (dependency_key, character) tuples
     """
-    analysis = file_analysis_results.get(file_path)
+    # Ensure file_path key is normalized for lookup
+    norm_file_path = normalize_path(file_path)
+    analysis = file_analysis_results.get(norm_file_path)
+
     if analysis is None:
-        logger.warning(f"No analysis results found for {file_path}")
+        logger.warning(f"No analysis results found for normalized path {norm_file_path}")
+        return []
+    if "error" in analysis or "skipped" in analysis:
+        logger.info(f"Skipping dependency suggestion for {norm_file_path} due to analysis error/skip.")
         return []
 
+    # 1. Explicit import dependency ('>')
     explicit_suggestions = []
-    # Explicit import dependency ('<', '>') - original logic used '>'
-    explicit_deps_paths = _identify_python_dependencies(file_path, analysis, file_analysis_results, project_root)
-    for dep_path, dep_type in explicit_deps_paths: # dep_type is likely '>' from _identify_python_dependencies
-        dep_key = get_key_from_path(dep_path, key_map)
+    # Pass key_map down to the helper function
+    explicit_deps_paths = _identify_python_dependencies(norm_file_path, analysis, file_analysis_results, project_root, key_map)
+    for dep_path, dep_type in explicit_deps_paths: # dep_type should be '>'
+        dep_key = get_key_from_path(dep_path, key_map) # dep_path is already normalized absolute
         if dep_key:
-            logger.debug(f"Suggesting {get_key_from_path(file_path, key_map)} -> {dep_key} ({dep_type}) due to Python import.")
-            explicit_suggestions.append((dep_key, dep_type)) # Use the type from identification
+            source_key = get_key_from_path(norm_file_path, key_map)
+            if source_key and dep_key != source_key: # Avoid self-imports
+                logger.debug(f"Suggesting {source_key} -> {dep_key} ({dep_type}) due to explicit Python import.")
+                explicit_suggestions.append((dep_key, dep_type))
         else:
             logger.debug(f"Could not find key for explicit python dependency path: {dep_path}")
 
-    # Semantic suggestions ('s' or 'S')
-    semantic_suggestions = suggest_semantic_dependencies(file_path, key_map, project_root)
+    # 2. Structural dependency ('>' for calls/attributes, '<' for inheritance)
+    structural_suggestions = _identify_structural_dependencies(norm_file_path, analysis, key_map, project_root)
 
-    # REMOVED: Directory dependencies ('x') - Added from original logic
-    # directory_suggestions = suggest_directory_dependencies(file_path, key_map)
- 
-    # Combine: explicit takes precedence over semantic
-    return _combine_suggestions_with_char_priority(explicit_suggestions + semantic_suggestions) # Removed directory_suggestions
+    # 3. Semantic suggestions ('s' or 'S')
+    semantic_suggestions = suggest_semantic_dependencies(norm_file_path, key_map, project_root)
+
+    # 4. Combine: explicit/structural take precedence over semantic based on config priority
+    all_suggestions = explicit_suggestions + structural_suggestions + semantic_suggestions
+    return _combine_suggestions_with_char_priority(all_suggestions)
 
 def suggest_javascript_dependencies(file_path: str, key_map: Dict[str, str], project_root: str, file_analysis_results: Dict[str, Any], threshold: float) -> List[Tuple[str, str]]:
     """
@@ -163,29 +313,31 @@ def suggest_javascript_dependencies(file_path: str, key_map: Dict[str, str], pro
     Returns:
         List of (dependency_key, character) tuples
     """
-    analysis = file_analysis_results.get(file_path)
+    norm_file_path = normalize_path(file_path) # Ensure normalization
+    analysis = file_analysis_results.get(norm_file_path)
     if analysis is None:
-        logger.warning(f"No analysis results found for {file_path}")
+        logger.warning(f"No analysis results found for {norm_file_path}")
         return []
 
     explicit_suggestions = []
     # Explicit import dependency ('>')
-    explicit_deps_paths = _identify_javascript_dependencies(file_path, analysis, file_analysis_results, project_root)
+    # Pass key_map down to the helper function
+    explicit_deps_paths = _identify_javascript_dependencies(norm_file_path, analysis, file_analysis_results, project_root, key_map)
     for dep_path, dep_type in explicit_deps_paths:
         dep_key = get_key_from_path(dep_path, key_map)
         if dep_key:
-            logger.debug(f"Suggesting {get_key_from_path(file_path, key_map)} -> {dep_key} ({dep_type}) due to JS/TS import.")
-            explicit_suggestions.append((dep_key, dep_type))
+            source_key = get_key_from_path(norm_file_path, key_map)
+            if source_key and dep_key != source_key: # Avoid self-imports
+                logger.debug(f"Suggesting {source_key} -> {dep_key} ({dep_type}) due to JS/TS import.")
+                explicit_suggestions.append((dep_key, dep_type))
         else:
             logger.debug(f"Could not find key for explicit js dependency path: {dep_path}")
 
     # Semantic suggestions ('s' or 'S')
-    semantic_suggestions = suggest_semantic_dependencies(file_path, key_map, project_root)
+    semantic_suggestions = suggest_semantic_dependencies(norm_file_path, key_map, project_root)
 
-    # REMOVED: Directory dependencies ('x')
-    # directory_suggestions = suggest_directory_dependencies(file_path, key_map)
- 
-    return _combine_suggestions_with_char_priority(explicit_suggestions + semantic_suggestions) # Removed directory_suggestions
+    # Combine explicit (>) and semantic (s/S)
+    return _combine_suggestions_with_char_priority(explicit_suggestions + semantic_suggestions)
 
 def suggest_documentation_dependencies(file_path: str, key_map: Dict[str, str], project_root: str, file_analysis_results: Dict[str, Any], threshold: float, embeddings_dir: str, metadata_path: str) -> List[Tuple[str, str]]:
     """
@@ -202,75 +354,54 @@ def suggest_documentation_dependencies(file_path: str, key_map: Dict[str, str], 
     Returns:
         List of (dependency_key, character) tuples
     """
-    analysis = file_analysis_results.get(file_path)
+    norm_file_path = normalize_path(file_path) # Ensure normalization
+    analysis = file_analysis_results.get(norm_file_path)
     if analysis is None:
-        logger.warning(f"Analysis results are None for {file_path}. Skipping suggestions.")
+        logger.warning(f"Analysis results are None for {norm_file_path}. Skipping suggestions.")
         return []
     if "error" in analysis:
-        logger.warning(f"Analysis result contains error for {file_path}: {analysis['error']}. Skipping suggestions.")
+        logger.warning(f"Analysis result contains error for {norm_file_path}: {analysis['error']}. Skipping suggestions.")
         return []
 
     explicit_suggestions = []
     # Explicit link dependency ('d')
-    explicit_deps_paths = _identify_markdown_dependencies(file_path, analysis, file_analysis_results, project_root)
+    # Pass key_map down to the helper function
+    explicit_deps_paths = _identify_markdown_dependencies(norm_file_path, analysis, file_analysis_results, project_root, key_map)
     for dep_path, dep_type in explicit_deps_paths: # dep_type should be 'd'
         dep_key = get_key_from_path(dep_path, key_map)
         if dep_key:
-            logger.debug(f"Suggesting {get_key_from_path(file_path, key_map)} -> {dep_key} ({dep_type}) due to Markdown link.")
-            explicit_suggestions.append((dep_key, dep_type))
+            source_key = get_key_from_path(norm_file_path, key_map)
+            if source_key and dep_key != source_key: # Avoid self-links
+                logger.debug(f"Suggesting {source_key} -> {dep_key} ({dep_type}) due to Markdown link.")
+                explicit_suggestions.append((dep_key, dep_type))
         else:
             logger.debug(f"Could not find key for explicit MD dependency path: {dep_path}")
 
     # Semantic suggestions ('s' or 'S')
-    # Note: Previous logic incorrectly used 'x' for docs; now uses standard 's'/'S' based on thresholds.
-    semantic_suggestions = suggest_semantic_dependencies(file_path, key_map, project_root)
+    semantic_suggestions = suggest_semantic_dependencies(norm_file_path, key_map, project_root)
 
-    # REMOVED: Directory dependencies ('x')
-    # directory_suggestions = suggest_directory_dependencies(file_path, key_map)
- 
-    # Combine explicit ('d') and semantic ('x') - Note: Semantic still uses 'x' for docs based on previous logic
-    return _combine_suggestions_with_char_priority(explicit_suggestions + semantic_suggestions) # Removed directory_suggestions
+    # Combine explicit ('d') and semantic ('s'/'S')
+    return _combine_suggestions_with_char_priority(explicit_suggestions + semantic_suggestions)
 
 def suggest_generic_dependencies(file_path: str, key_map: Dict[str, str], project_root: str, threshold: float) -> List[Tuple[str, str]]:
     """
-    Suggest dependencies for a generic file (semantic 's' and directory 'x' only).
+    Suggest dependencies for a generic file (semantic 's'/'S' only).
 
     Args:
         file_path: Path to the file (normalized)
         key_map: Dictionary mapping keys to file paths
         project_root: Root directory of the project
-        threshold: Confidence threshold for semantic suggestions
+        threshold: Confidence threshold for semantic suggestions (Note: threshold is currently read from config within suggest_semantic_dependencies)
     Returns:
         List of (dependency_key, character) tuples
     """
+    norm_file_path = normalize_path(file_path) # Ensure normalization
     # Semantic suggestions ('s' or 'S')
-    semantic_suggestions = suggest_semantic_dependencies(file_path, key_map, project_root)
-    # REMOVED: Directory dependencies ('x')
-    # directory_suggestions = suggest_directory_dependencies(file_path, key_map)
+    semantic_suggestions = suggest_semantic_dependencies(norm_file_path, key_map, project_root)
 
     # Only semantic suggestions remain for generic
-    return _combine_suggestions_with_char_priority(semantic_suggestions) # Removed directory_suggestions
- 
-# REMOVED FUNCTION: suggest_directory_dependencies
-# def suggest_directory_dependencies(file_path: str, key_map: Dict[str, str]) -> List[Tuple[str, str]]:
-#     """Suggests mutual 'x' dependency between a file and its parent directory."""
-        # The reverse (parent -> file) will be handled when the parent is processed or aggregated
-# REMOVED FUNCTION BODY
-#     suggestions = []
-#     path_to_key = {v: k for k, v in key_map.items()}
-#     file_key = path_to_key.get(normalize_path(file_path))
-#     if not file_key:
-#         return []
-#
-#     parent_dir = os.path.dirname(normalize_path(file_path))
-#     parent_key = path_to_key.get(parent_dir)
-#
-#     if parent_key and parent_key != file_key:
-#         logger.debug(f"Suggesting {file_key} <-> {parent_key} (x) due to directory structure.")
-#         suggestions.append((parent_key, "x"))
-#         # The reverse (parent -> file) will be handled when the parent is processed or aggregated
-#
-#     return suggestions
+    return _combine_suggestions_with_char_priority(semantic_suggestions)
+
 
 # --- Semantic Suggestion (Uses 's'/'S' thresholds) ---
 
@@ -294,7 +425,7 @@ def suggest_semantic_dependencies(file_path: str, key_map: Dict[str, str], proje
         return []
 
     path_to_key = {normalize_path(path): key for key, path in key_map.items()}
-    file_key = path_to_key.get(file_path)
+    file_key = path_to_key.get(file_path) # file_path is already normalized here
     if not file_key:
         logger.debug(f"No key found for file: {file_path}")
         return []
@@ -305,22 +436,32 @@ def suggest_semantic_dependencies(file_path: str, key_map: Dict[str, str], proje
     # Get necessary context for calculate_similarity
     code_roots = config.get_code_root_directories()
     doc_roots = config.get_doc_directories()
-    from .embedding_manager import calculate_similarity # Local import
+    try:
+        # Local import to avoid potential top-level circular dependency
+        from .embedding_manager import calculate_similarity
+    except ImportError:
+        logger.error("Could not import calculate_similarity from embedding_manager. Semantic suggestions disabled.")
+        return []
 
-    source_path = key_map.get(file_key)
+
+    source_path = key_map.get(file_key) # Get original path for checks if needed
 
     for other_key in keys_to_compare:
         target_path = key_map.get(other_key)
 
+        # Ensure both source and target are files before calculating similarity
         if not source_path or not target_path or os.path.isdir(source_path) or os.path.isdir(target_path):
             continue
 
-        confidence = calculate_similarity(file_key, other_key, embeddings_dir, key_map, project_root, code_roots, doc_roots)
+        try:
+            confidence = calculate_similarity(file_key, other_key, embeddings_dir, key_map, project_root, code_roots, doc_roots)
+        except Exception as e:
+             logger.warning(f"Error calculating similarity between {file_key} and {other_key}: {e}")
+             confidence = 0.0 # Assume no similarity on error
 
         # --- Read thresholds from config ---
-        # Use .get_threshold() which handles defaults if key is missing
-        threshold_S_strong = config.get_threshold("code_similarity") # 'S' uses code_similarity (Default is 0.7 in config_manager)
-        threshold_s_weak = config.get_threshold("doc_similarity")   # 's' uses doc_similarity (Default is 0.65 in config_manager)
+        threshold_S_strong = config.get_threshold("code_similarity")
+        threshold_s_weak = config.get_threshold("doc_similarity")
 
         # --- Log raw confidence BEFORE thresholding ---
         logger.debug(f"Raw confidence {file_key} -> {other_key}: {confidence:.4f}") # Log raw score
@@ -333,8 +474,6 @@ def suggest_semantic_dependencies(file_path: str, key_map: Dict[str, str], proje
         elif confidence >= threshold_s_weak:
             assigned_char = 's'
             logger.debug(f"Suggesting {file_key} -> {other_key} ('s') due to weak semantic similarity (confidence: {confidence:.4f} >= {threshold_s_weak:.2f}).")
-        # else: # Confidence below weak threshold, no suggestion generated
-            # logger.debug(f"Confidence {confidence:.4f} for {file_key} -> {other_key} below weak threshold {threshold_s_weak:.2f}. No suggestion.")
 
         if assigned_char:
             suggested_dependencies.append((other_key, assigned_char))
@@ -345,253 +484,381 @@ def suggest_semantic_dependencies(file_path: str, key_map: Dict[str, str], proje
 
 def _combine_suggestions_with_char_priority(suggestions: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
     """
-    Combine suggestions, prioritizing explicit and strong semantic characters.
-    Priority: explicit ('>', '<', 'd', 'x'), strong semantic ('S') > weak semantic ('s')
+    Combine suggestions for the same target key, prioritizing based on character type.
+    Priority order (highest first): '<', '>', 'x', 'd', 'S', 's', 'p'
+    Handles merging '<' and '>' into 'x'.
     """
     combined: Dict[str, str] = {}
-    # Define priority: Higher number = higher priority
-    priority = {'<': 3, '>': 3, 'x': 3, 'd': 3, 'S': 3, 's': 2, '-': 1}
+    config = ConfigManager()
+    get_priority = config.get_char_priority
 
     for key, char in suggestions:
-        if key:
-            current_char = combined.get(key)
-            current_priority = priority.get(current_char, 0)
-            new_priority = priority.get(char, 0)
+        if not key: continue # Skip if target key is somehow invalid
 
-            if new_priority > current_priority:
-                logger.debug(f"Combining suggestions for target {key}: Choosing '{char}' (prio {new_priority}) over '{current_char}' (prio {current_priority}).")
-                combined[key] = char
-            elif new_priority == current_priority and char != current_char:
-                 # Handle conflict, e.g., log warning, maybe default to 'x'?
-                 # For now, let's keep the first one encountered or make it 'x' if priorities are equal but chars differ
-                 logger.debug(f"Combining suggestions for target {key}: Conflict between '{char}' and '{current_char}' (both prio {new_priority}). Setting to 'x'.")
-                 if current_char != 'x': # Avoid logging if it's already 'x'
-                     combined[key] = 'x' # Indicate potential mutual or conflicting signals
-            # else: logger.debug(f"Combining suggestions for target {key}: Keeping '{current_char}' (prio {current_priority}) over '{char}' (prio {new_priority}).") # Optional: Log kept suggestions
+        current_char = combined.get(key)
+        current_priority = get_priority(current_char) if current_char else -1
+        new_priority = get_priority(char)
 
+        if new_priority > current_priority:
+            # New char has higher priority, overwrite
+            logger.debug(f"Combining suggestions for target {key}: Choosing '{char}' (prio {new_priority}) over '{current_char}' (prio {current_priority}).")
+            combined[key] = char
+        elif new_priority == current_priority and char != current_char and current_char is not None:
+            # Equal priority, but different characters
+            if {char, current_char} == {'<', '>'}:
+                # Specific rule: < and > merge to x
+                if combined.get(key) != 'x': # Avoid redundant logs/updates
+                    logger.debug(f"Combining suggestions for target {key}: Conflict between '<' and '>'. Setting to 'x'.")
+                    combined[key] = 'x'
+            else:
+                # Keep the existing character for other equal priority conflicts (arbitrary, but consistent)
+                logger.debug(f"Combining suggestions for target {key}: Equal priority conflict between '{char}' and '{current_char}'. Keeping existing '{current_char}'.")
+        # else: Lower priority or same character, do nothing
 
-    # Return as list of tuples, potentially sorted if needed, but order doesn't matter for grid update
+    # Return as list of tuples
     return list(combined.items())
 
 
-# --- Dependency Identification Helpers (Mostly unchanged, ensure they return Tuple[str, str]) ---
+# --- Dependency Identification Helpers (Ensure they return Tuple[str, str]) ---
 
-def _identify_dependencies(source_path: str, source_analysis: Dict[str, Any],
-                          file_analyses: Dict[str, Dict[str, Any]],
-                          project_root: str) -> List[Tuple[str, str]]:
+# Deprecated - Logic moved into language-specific suggest_* functions.
+# def _identify_dependencies(source_path: str, source_analysis: Dict[str, Any],
+#                           file_analyses: Dict[str, Dict[str, Any]],
+#                           project_root: str) -> List[Tuple[str, str]]: ...
+
+def _identify_python_dependencies(source_path: str, source_analysis: Dict[str, Any],
+                                 file_analysis_results: Dict[str, Dict[str, Any]], # Expects absolute paths as keys
+                                 project_root: str,
+                                 key_map: Dict[str, str]) -> List[Tuple[str, str]]: # <<< Added key_map
     """
-    Identifies dependencies from a source file to other files in the project.
-    Returns list of tuples (absolute_dependent_file_path, dependency_type_char).
+    Identifies Python import dependencies. Returns (abs_path, '>').
+    Uses 'imports' list from analysis results.
     """
     dependencies = []
-    file_type = source_analysis.get("file_type", "generic")
+    imports = source_analysis.get("imports", [])
+    source_dir = os.path.dirname(source_path)
+    norm_file_analysis_keys = {normalize_path(k) for k in file_analysis_results.keys()} # Use a set for faster lookup
 
-    abs_source_path = normalize_path(source_path)
-    abs_project_root = normalize_path(project_root)
-    abs_file_analyses = {normalize_path(k): v for k, v in file_analyses.items()}
+    for import_name_or_path in imports:
+         possible_paths_abs = _convert_python_import_to_paths(import_name_or_path, source_dir, project_root)
 
-    # Call language-specific identification functions which should return chars
-    if file_type == "py":
-        dependencies.extend(_identify_python_dependencies(abs_source_path, source_analysis, abs_file_analyses, abs_project_root))
-    elif file_type == "js":
-        dependencies.extend(_identify_javascript_dependencies(abs_source_path, source_analysis, abs_file_analyses, abs_project_root))
-    elif file_type == "md":
-        dependencies.extend(_identify_markdown_dependencies(abs_source_path, source_analysis, abs_file_analyses, abs_project_root))
-    elif file_type == "html":
-        dependencies.extend(_identify_html_dependencies(abs_source_path, source_analysis, abs_file_analyses, abs_project_root))
-    elif file_type == "css":
-        dependencies.extend(_identify_css_dependencies(abs_source_path, source_analysis, abs_file_analyses, abs_project_root))
+         found = False
+         for path_abs in possible_paths_abs:
+             norm_path_abs = normalize_path(path_abs)
+             if norm_path_abs in norm_file_analysis_keys:
+                 dependencies.append((norm_path_abs, ">"))
+                 found = True
+                 break
+         # if not found: logger.debug(f"Could not resolve Python import '{import_name_or_path}' in {source_path} to a tracked file.")
+    return list(set(dependencies))
 
-    # Directory containment check ('x') - Simplified from original
-    # This is now handled by suggest_directory_dependencies called separately
+
+def _convert_python_import_to_paths(import_name: str, source_dir: str, project_root: str, is_from_import: bool = False, relative_level: int = 0) -> List[str]:
+    """
+    Converts a Python import statement/module name to potential absolute file paths.
+    Handles relative imports based on level.
+    """
+    potential_paths_abs = []
+    normalized_project_root = normalize_path(project_root)
+    normalized_source_dir = normalize_path(source_dir)
+
+    # --- Handle Relative Imports ---
+    if relative_level > 0:
+        relative_module_part = import_name # Assume import_name is the module part after dots
+        level = relative_level
+        current_dir = normalized_source_dir
+        for _ in range(level - 1):
+            parent_dir = os.path.dirname(current_dir)
+            if not parent_dir or parent_dir == current_dir or not parent_dir.startswith(normalized_project_root):
+                 current_dir = None
+                 break
+            current_dir = parent_dir
+
+        if current_dir:
+            if relative_module_part:
+                module_path_part = relative_module_part.replace('.', os.sep)
+                base_path = normalize_path(os.path.join(current_dir, module_path_part))
+                potential_paths_abs.append(f"{base_path}.py")
+                potential_paths_abs.append(normalize_path(os.path.join(base_path, "__init__.py")))
+            else:
+                 potential_paths_abs.append(normalize_path(os.path.join(current_dir, "__init__.py")))
+
+    # --- Handle Absolute Imports ---
+    elif relative_level == 0 and import_name and not import_name.startswith('.'):
+        module_path_part = import_name.replace('.', os.sep)
+        # Check relative to project root(s) - consider multiple source roots if necessary?
+        # For now, assume single project_root acts as the main source root.
+        # TODO: Potentially check against all configured code_roots?
+        base_path_in_proj = normalize_path(os.path.join(normalized_project_root, module_path_part))
+        potential_paths_abs.append(f"{base_path_in_proj}.py")
+        potential_paths_abs.append(normalize_path(os.path.join(base_path_in_proj, "__init__.py")))
+
+        # Consider site-packages (filtered later)
+        try:
+             spec = importlib.util.find_spec(import_name)
+             if spec and spec.origin and spec.origin not in ('namespace', 'built-in', None):
+                  origin_path = normalize_path(spec.origin)
+                  # If it's a package (__init__.py), keep it. If it's a module (.py), keep it.
+                  if origin_path.endswith("__init__.py") or origin_path.endswith(".py"):
+                       potential_paths_abs.append(origin_path)
+                  # If the origin points to a directory (e.g., namespace package), we might need __init__.py
+                  elif os.path.isdir(origin_path):
+                       potential_paths_abs.append(normalize_path(os.path.join(origin_path, "__init__.py")))
+        except (ImportError, ValueError, ModuleNotFoundError, AttributeError):
+             # Module not found externally or other import issue, rely on project paths
+             pass
+
+    # --- Filter based on project boundaries ---
+    final_paths = []
+    for p_abs in potential_paths_abs:
+        # Check if the potential path exists and is inside the project root
+        # We also want to include paths that might be external dependencies if they were resolved
+        # But the dependency check later should only link project files.
+        # Let's filter to only include paths within the project root for internal dependency tracking.
+        if p_abs.startswith(normalized_project_root): # and os.path.exists(p_abs): # Check existence? Might be slow.
+            final_paths.append(p_abs)
+
+    # logger.debug(f"Converted import '{import_name}' (level {relative_level}) in '{source_dir}' to potential paths: {final_paths}")
+    return final_paths
+
+
+def _identify_javascript_dependencies(source_path: str, source_analysis: Dict[str, Any],
+                                    file_analyses: Dict[str, Dict[str, Any]], # Expects absolute paths as keys
+                                    project_root: str,
+                                    key_map: Dict[str, str]) -> List[Tuple[str, str]]: # <<< Added key_map
+    """
+    Identifies JS/TS import dependencies. Returns (abs_path, '>').
+    Uses 'imports' list from analysis results.
+    """
+    dependencies = []
+    imports = source_analysis.get("imports", []) # Should be list of strings like './utils', '../components/button'
+    source_dir = os.path.dirname(source_path)
+    js_extensions = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']
+    norm_file_analysis_keys = {normalize_path(k) for k in file_analyses.keys()} # Use set
+
+    for import_path_str in imports:
+        # Basic check for relative/absolute paths within the project context
+        # Skips external package imports (e.g., 'react', 'lodash') and URLs
+        if not import_path_str or \
+           not (import_path_str.startswith('.') or import_path_str.startswith('/')) or \
+           import_path_str.startswith('http:') or import_path_str.startswith('https:'):
+            # Could add more sophisticated checks for aliased paths (e.g., '@/') later if needed
+            continue
+
+        try:
+            # Resolve the base path relative to the source file
+            # Use the utility function `resolve_relative_path` (ensure it handles '/' prefix correctly relative to project root if needed)
+            # For now, assume '/' is not used for project-root relative imports here.
+            resolved_base = normalize_path(os.path.join(source_dir, import_path_str))
+
+            possible_targets = []
+            # 1. Check if the resolved path directly matches a file (including extension)
+            # (Handled by checking variations below)
+
+            # 2. Check variations: direct file match, adding extensions, index file in dir
+            # If import has extension already:
+            has_extension = any(import_path_str.lower().endswith(ext) for ext in js_extensions)
+            if has_extension:
+                possible_targets.append(resolved_base)
+            else:
+                 # Try adding extensions to the resolved base
+                for ext in js_extensions:
+                     possible_targets.append(f"{resolved_base}{ext}")
+                 # Try index file within the directory pointed to by resolved_base
+                for ext in js_extensions:
+                     possible_targets.append(normalize_path(os.path.join(resolved_base, f"index{ext}")))
+
+            # Check if any possible target exists in our tracked files
+            found = False
+            for target_path_abs in possible_targets:
+                norm_target_path = normalize_path(target_path_abs)
+                if norm_target_path in norm_file_analysis_keys:
+                    dependencies.append((norm_target_path, ">")) # Assign '>'
+                    found = True
+                    break # Found the dependency
+            # if not found: logger.debug(f"Could not resolve JS/TS import '{import_path_str}' in {source_path} to a tracked file. Tried: {possible_targets}")
+
+        except Exception as e:
+            logger.error(f"Error resolving JS import '{import_path_str}' in {source_path}: {e}")
 
     return list(set(dependencies))
 
 
-def _identify_python_dependencies(source_path: str, source_analysis: Dict[str, Any],
-                                 file_analysis_results: Dict[str, Dict[str, Any]], # Expects absolute paths as keys
-                                 project_root: str) -> List[Tuple[str, str]]:
-    """
-    Identifies Python import dependencies. Returns (abs_path, '>').
-    """
-    dependencies = []
-    imports = source_analysis.get("imports", [])
-    source_dir = os.path.dirname(source_path)
-
-    for import_name in imports:
-        possible_paths_abs = _convert_python_import_to_paths(import_name, source_dir, project_root)
-        found = False
-        for path_abs in possible_paths_abs:
-            if path_abs in file_analysis_results:
-                dependencies.append((path_abs, ">"))  # Assign '>' for explicit import
-                found = True
-                break
-        # if not found: logger.debug(...) # Optional logging
-    return dependencies
-
-def _convert_python_import_to_paths(import_name: str, source_dir: str, project_root: str) -> List[str]:
-    """
-    Converts a Python import statement to potential absolute file paths. (Unchanged)
-    """
-    potential_paths_abs = []
-    normalized_project_root = normalize_path(project_root)
-
-    # --- Handle Relative Imports ---
-    if import_name.startswith('.'):
-        level = 0
-        while level < len(import_name) and import_name[level] == '.': level += 1
-        relative_module_part = import_name[level:] if level < len(import_name) else ""
-        current_dir = source_dir
-        for _ in range(level - 1):
-            parent_dir = os.path.dirname(current_dir)
-            if not parent_dir or parent_dir == current_dir or not parent_dir.startswith(normalized_project_root):
-                 current_dir = None; break
-            current_dir = parent_dir
-        if current_dir:
-            if relative_module_part:
-                module_path_part = relative_module_part.replace('.', os.sep)
-                potential_paths_abs.append(normalize_path(os.path.join(current_dir, f"{module_path_part}.py")))
-                potential_paths_abs.append(normalize_path(os.path.join(current_dir, module_path_part, "__init__.py")))
-            else:
-                 potential_paths_abs.append(normalize_path(os.path.join(current_dir, "__init__.py")))
-    # --- Handle Absolute Imports ---
-    else:
-        module_path_part = import_name.replace('.', os.sep)
-        potential_paths_abs.append(normalize_path(os.path.join(normalized_project_root, f"{module_path_part}.py")))
-        potential_paths_abs.append(normalize_path(os.path.join(normalized_project_root, module_path_part, "__init__.py")))
-
-    # --- Filter based on project boundaries and external checks ---
-    final_paths = []
-    try:
-        spec = importlib.util.find_spec(import_name)
-        if spec and spec.origin and not normalize_path(spec.origin).startswith(normalized_project_root):
-            return []
-    except (ImportError, AttributeError, ValueError, ModuleNotFoundError):
-        pass
-    for p_abs in potential_paths_abs:
-        if p_abs.startswith(normalized_project_root):
-            final_paths.append(p_abs)
-    return final_paths
-
-def _identify_javascript_dependencies(source_path: str, source_analysis: Dict[str, Any],
-                                    file_analyses: Dict[str, Dict[str, Any]],
-                                    project_root: str) -> List[Tuple[str, str]]:
-    """
-    Identifies JS/TS import dependencies. Returns (abs_path, '>').
-    """
-    dependencies = []
-    imports = source_analysis.get("imports", [])
-    source_dir = os.path.dirname(source_path)
-    js_extensions = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']
-
-    for import_name in imports:
-        if not (import_name.startswith('.') or import_name.startswith('/')) or \
-           import_name.startswith('http:') or import_name.startswith('https:'):
-            continue
-        resolved_base_path = normalize_path(resolve_relative_path(source_dir, import_name, project_root))
-        possible_targets = []
-        if any(resolved_base_path.lower().endswith(ext) for ext in js_extensions):
-            possible_targets.append(resolved_base_path)
-        else:
-            for ext in js_extensions: possible_targets.append(f"{resolved_base_path}{ext}")
-            for ext in js_extensions: possible_targets.append(normalize_path(os.path.join(resolved_base_path, f"index{ext}")))
-        found = False
-        for possible_path_abs in possible_targets:
-            if possible_path_abs in file_analyses:
-                dependencies.append((possible_path_abs, ">")) # Assign '>'
-                found = True; break
-        # if not found: logger.debug(...)
-    return dependencies
-
 def _identify_markdown_dependencies(source_path: str, source_analysis: Dict[str, Any],
-                                  file_analyses: Dict[str, Dict[str, Any]],
-                                  project_root: str) -> List[Tuple[str, str]]:
+                                  file_analyses: Dict[str, Dict[str, Any]], # Expects absolute paths as keys
+                                  project_root: str,
+                                  key_map: Dict[str, str]) -> List[Tuple[str, str]]: # <<< Added key_map
     """
     Identifies Markdown link dependencies. Returns (abs_path, 'd').
+    Uses 'links' list from analysis results.
     """
     dependencies = []
-    links = source_analysis.get("links", [])
+    links = source_analysis.get("links", []) # Should be list of dicts like {"url": "...", "text": "..."}
     source_dir = os.path.dirname(source_path)
+    norm_file_analysis_keys = {normalize_path(k) for k in file_analyses.keys()} # Use set
 
     for link in links:
         url = link.get("url", "")
-        if url.startswith('#') or ':' in url.split('/')[0] and ':\\' not in url.split('/')[0]:
+        # Skip empty URLs, internal page anchors, and absolute web URLs
+        if not url or url.startswith('#') or \
+           ('://' in url) or (url.startswith('//')) or \
+           (url.startswith('mailto:')) or (url.startswith('tel:')):
             continue
-        resolved_path_abs = normalize_path(resolve_relative_path(source_dir, url, project_root))
-        cleaned_path_abs = resolved_path_abs.split('#')[0].split('?')[0]
-        if cleaned_path_abs in file_analyses:
-            dependencies.append((cleaned_path_abs, "d")) # Assign 'd'
-    return dependencies
+
+        try:
+            # Resolve relative to source directory
+            # Handle potential URL fragments and query parameters
+            url_cleaned = url.split('#')[0].split('?')[0]
+            if not url_cleaned: # If URL was just an anchor or query
+                continue
+
+            # Use os.path.join and normalize for robust path resolution
+            resolved_path_abs = normalize_path(os.path.join(source_dir, url_cleaned))
+
+            # Check if the resolved path (or variations like adding .md) exists in tracked files
+            possible_targets = [resolved_path_abs]
+            # If no extension, try adding common doc extensions
+            if not os.path.splitext(resolved_path_abs)[1]:
+                possible_targets.append(resolved_path_abs + ".md")
+                possible_targets.append(resolved_path_abs + ".rst")
+                # Also check for index file in directory
+                possible_targets.append(normalize_path(os.path.join(resolved_path_abs, "index.md")))
+                possible_targets.append(normalize_path(os.path.join(resolved_path_abs, "README.md")))
+
+
+            found = False
+            for target_path in possible_targets:
+                 norm_target_path = normalize_path(target_path)
+                 if norm_target_path in norm_file_analysis_keys:
+                     # Check if the target is actually a file (links shouldn't point to directories conceptually here)
+                     # We rely on file_analyses keys representing actual files tracked.
+                     dependencies.append((norm_target_path, "d")) # Assign 'd'
+                     found = True
+                     break # Found the target
+            # if not found: logger.debug(f"Could not resolve MD link '{url}' in {source_path} to a tracked file. Tried: {possible_targets}")
+
+        except Exception as e:
+             logger.error(f"Error resolving MD link '{url}' in {source_path}: {e}")
+
+    return list(set(dependencies))
+
 
 def _identify_html_dependencies(source_path: str, source_analysis: Dict[str, Any],
-                              file_analyses: Dict[str, Dict[str, Any]],
-                              project_root: str) -> List[Tuple[str, str]]:
+                              file_analyses: Dict[str, Dict[str, Any]], # Expects absolute paths as keys
+                              project_root: str,
+                              key_map: Dict[str, str]) -> List[Tuple[str, str]]: # <<< Added key_map
     """
     Identifies HTML dependencies (links, scripts, styles). Returns various chars.
+    Uses 'links', 'scripts', 'stylesheets', 'images' from analysis results.
     """
     dependencies = []
-    links = source_analysis.get("links", [])
-    scripts = source_analysis.get("scripts", [])
-    stylesheets = source_analysis.get("stylesheets", [])
-    images = source_analysis.get("images", [])
+    links = source_analysis.get("links", []) # e.g., [{"href": "...", "rel": "..."}]
+    scripts = source_analysis.get("scripts", []) # e.g., [{"src": "..."}]
+    stylesheets = source_analysis.get("stylesheets", []) # e.g., [{"href": "..."}]
+    images = source_analysis.get("images", []) # e.g., [{"src": "..."}]
     source_dir = os.path.dirname(source_path)
+    norm_file_analysis_keys = {normalize_path(k) for k in file_analyses.keys()} # Use set
 
-    urls_to_check = [link.get("url") for link in links] + \
-                    [script.get("src") for script in scripts] + \
-                    [style.get("href") for style in stylesheets] + \
-                    [img.get("src") for img in images]
+    urls_to_check = []
+    # Extract URLs, noting the type of resource if possible
+    for link in links: urls_to_check.append((link.get("href"), "link"))
+    for script in scripts: urls_to_check.append((script.get("src"), "script"))
+    for style in stylesheets: urls_to_check.append((style.get("href"), "style"))
+    for img in images: urls_to_check.append((img.get("src"), "image"))
 
-    for url in urls_to_check:
-        if not url or url.startswith('#') or ':' in url.split('/')[0] and ':\\' not in url.split('/')[0]:
+
+    for url, resource_type in urls_to_check:
+        # Skip empty, anchors, web URLs etc.
+        if not url or url.startswith('#') or \
+           ('://' in url) or (url.startswith('//')) or \
+           (url.startswith('mailto:')) or (url.startswith('tel:')) or \
+           url.startswith('data:'):
              continue
-        resolved_path_abs = normalize_path(resolve_relative_path(source_dir, url, project_root))
-        cleaned_path_abs = resolved_path_abs.split('#')[0].split('?')[0]
 
-        if cleaned_path_abs in file_analyses:
-             dep_type = ">" # Default reason
-             reason = "HTML resource link"
-             target_ext = os.path.splitext(cleaned_path_abs)[1].lower()
-             if target_ext in ['.css']:
-                 dep_type = 'd'; reason = "HTML stylesheet link"
-             elif target_ext in ['.js', '.ts', '.mjs']:
-                 dep_type = '>'; reason = "HTML script link"
-             elif target_ext in ['.html']:
-                 dep_type = 'd'; reason = "HTML link to another HTML doc" # Changed 'x' to 'd'
-             # Images/other resources could be '>' or another char if needed
-             logger.debug(f"Suggesting {get_key_from_path(source_path, file_analyses)} -> {get_key_from_path(cleaned_path_abs, file_analyses)} ({dep_type}) due to {reason}.")
-             dependencies.append((cleaned_path_abs, dep_type))
-    return dependencies
+        try:
+            url_cleaned = url.split('#')[0].split('?')[0]
+            if not url_cleaned: continue
+
+            resolved_path_abs = normalize_path(os.path.join(source_dir, url_cleaned))
+            norm_resolved_path = normalize_path(resolved_path_abs) # Use normalized version for checks
+
+            # Check if the resolved path exists directly in tracked files
+            if norm_resolved_path in norm_file_analysis_keys:
+                 dep_type = ">"; reason = f"HTML {resource_type} resource"
+                 target_ext = os.path.splitext(norm_resolved_path)[1].lower()
+
+                 if resource_type == "style" or target_ext == '.css':
+                     dep_type = 'd'; reason = "HTML stylesheet link"
+                 elif resource_type == "script" or target_ext in ['.js', '.ts', '.mjs']:
+                     dep_type = '>'; reason = "HTML script link"
+                 elif resource_type == "link" and target_ext in ['.html', '.htm']:
+                     dep_type = 'd'; reason = "HTML link to another HTML doc"
+                 elif resource_type == "link" and target_ext in ['.md', '.rst']:
+                      dep_type = 'd'; reason = "HTML link to documentation"
+                 # Add more specific types if needed (e.g., for images)
+
+                 src_key = get_key_from_path(source_path, key_map) # Use global key_map here
+                 tgt_key = get_key_from_path(norm_resolved_path, key_map)
+                 if src_key and tgt_key and src_key != tgt_key: # Avoid self-ref
+                    logger.debug(f"Suggesting {src_key} -> {tgt_key} ({dep_type}) due to {reason} ('{url}').")
+                    dependencies.append((norm_resolved_path, dep_type))
+                 else:
+                    logger.warning(f"Could not map keys for HTML dependency: {source_path} -> {norm_resolved_path}")
+            # else: logger.debug(f"Could not resolve HTML resource '{url}' in {source_path} to a tracked file. Tried: {norm_resolved_path}")
+
+        except Exception as e:
+             logger.error(f"Error resolving HTML resource '{url}' in {source_path}: {e}")
+
+    return list(set(dependencies))
 
 def _identify_css_dependencies(source_path: str, source_analysis: Dict[str, Any],
-                             file_analyses: Dict[str, Dict[str, Any]],
-                             project_root: str) -> List[Tuple[str, str]]:
+                             file_analyses: Dict[str, Dict[str, Any]], # Expects absolute paths as keys
+                             project_root: str,
+                             key_map: Dict[str, str]) -> List[Tuple[str, str]]: # <<< Added key_map
     """
     Identifies CSS @import dependencies. Returns (abs_path, '>').
+    Uses 'imports' list from analysis results.
     """
     dependencies = []
-    imports = source_analysis.get("imports", [])
+    imports = source_analysis.get("imports", []) # Should be list of dicts e.g. {"url": "sheet.css"}
     source_dir = os.path.dirname(source_path)
+    norm_file_analysis_keys = {normalize_path(k) for k in file_analyses.keys()} # Use set
 
     for import_item in imports:
         url = import_item.get("url", "")
-        if not url or ':' in url.split('/')[0] and ':\\' not in url.split('/')[0]:
+         # Skip empty, web URLs etc.
+        if not url or url.startswith('#') or \
+           ('://' in url) or (url.startswith('//')) or url.startswith('data:'):
              continue
-        resolved_path_abs = normalize_path(resolve_relative_path(source_dir, url, project_root))
-        cleaned_path_abs = resolved_path_abs.split('#')[0].split('?')[0]
-        if cleaned_path_abs in file_analyses:
-            dep_key = get_key_from_path(cleaned_path_abs, file_analyses)
-            if dep_key:
-                 logger.debug(f"Suggesting {get_key_from_path(source_path, file_analyses)} -> {dep_key} (>) due to CSS @import.")
-                 dependencies.append((cleaned_path_abs, ">")) # Assign '>'
-    return dependencies
 
-# --- Other Helpers (Unchanged) ---
+        try:
+            url_cleaned = url.split('#')[0].split('?')[0]
+            if not url_cleaned: continue
+
+            resolved_path_abs = normalize_path(os.path.join(source_dir, url_cleaned))
+            norm_resolved_path = normalize_path(resolved_path_abs)
+
+            # Check if the resolved path exists directly in tracked files
+            if norm_resolved_path in norm_file_analysis_keys:
+                 src_key = get_key_from_path(source_path, key_map) # Use global key_map
+                 tgt_key = get_key_from_path(norm_resolved_path, key_map)
+                 if src_key and tgt_key and src_key != tgt_key: # Avoid self-ref
+                     logger.debug(f"Suggesting {src_key} -> {tgt_key} (>) due to CSS @import ('{url}').")
+                     dependencies.append((norm_resolved_path, ">")) # Assign '>'
+                 else:
+                    logger.warning(f"Could not map keys for CSS dependency: {source_path} -> {norm_resolved_path}")
+            # else: logger.debug(f"Could not resolve CSS import '{url}' in {source_path} to a tracked file. Tried: {norm_resolved_path}")
+
+        except Exception as e:
+             logger.error(f"Error resolving CSS import '{url}' in {source_path}: {e}")
+
+    return list(set(dependencies))
+
+# --- Other Helpers ---
 
 def extract_function_calls(source_content: str, source_type: str) -> List[str]:
-    """Extracts function calls from source code."""
-    # ... (implementation unchanged) ...
+    """Extracts function calls from source code. (Mainly for potential future use)"""
     function_calls = []
-
     if source_type == "py":
         try:
             tree = ast.parse(source_content)
@@ -599,31 +866,34 @@ def extract_function_calls(source_content: str, source_type: str) -> List[str]:
                 if isinstance(node, ast.Call):
                     func = node.func
                     call_name = None
-                    if isinstance(func, ast.Name): call_name = func.id
-                    elif isinstance(func, ast.Attribute): call_name = func.attr
-                    if call_name: function_calls.append(call_name)
+                    # Extract names from simple calls (name()) and attribute calls (obj.name())
+                    if isinstance(func, ast.Name):
+                         call_name = func.id
+                    elif isinstance(func, ast.Attribute):
+                         # Could try to resolve func.value here to get the object type if needed
+                         call_name = func.attr # Just get the attribute name being called
+                    # Add more complex cases like calls on subscript results etc. if needed
+                    if call_name:
+                        function_calls.append(call_name)
         except SyntaxError:
-            logger.warning("Syntax error when extracting Python function calls")
+            logger.warning("Syntax error extracting Python function calls")
     elif source_type == "js":
-        func_call_pattern = re.compile(r'(?:\.\s*)?([a-zA-Z_$][\w$]*)\s*\(')
+        # Regex-based extraction for JS (can be less precise than AST)
+        # Matches function calls like func(), obj.func(), possibly new Class()
+        # Avoids matching keywords like if(), for(), while() etc.
+        func_call_pattern = re.compile(r'(?:[a-zA-Z0-9_$]\s*\.\s*)?([a-zA-Z_$][\w$]*)\s*\(')
         matches = func_call_pattern.findall(source_content)
-        keywords = {'if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'typeof', 'new', 'delete', 'void'}
+        # Common JS keywords that look like function calls but aren't (or aren't relevant here)
+        keywords = {'if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'typeof', 'instanceof', 'delete', 'void', 'super', 'this'}
+        # Also filter constructor calls starting with uppercase? Might be too restrictive.
         function_calls = [match for match in matches if match not in keywords]
+
     return list(set(function_calls))
 
 
 def suggest_initial_dependencies(key_map: Dict[str, str]) -> Dict[str, List[Tuple[str, str]]]:
-    """Suggest initial 'x' dependencies between files and their parent directories."""
-    # ... (implementation unchanged) ...
-    suggestions: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
-    path_to_key = {v: k for k, v in key_map.items()}
-    for key, path in key_map.items():
-        parent_dir = os.path.dirname(path)
-        parent_key = path_to_key.get(parent_dir)
-        # Removed initial 'x' suggestion for parent-child directory relationships as per activeContext.md Next Step 1
-        # if parent_key and parent_key != key:
-        #     suggestions[key].append((parent_key, "x"))
-        #     suggestions[parent_key].append((key, "x"))
-    return suggestions
+    """DEPRECATED: Suggest initial dependencies. Grid initialization handles placeholders."""
+    logger.warning("suggest_initial_dependencies is deprecated. Grid initialization handles this.")
+    return defaultdict(list)
 
 # End of file

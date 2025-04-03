@@ -8,10 +8,11 @@ import os
 import json
 from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
+import ast # <-- Import ast module
 
 # Import only from lower-level modules
 # Import get_project_root from path_utils
-from cline_utils.dependency_system.utils.path_utils import normalize_path, is_valid_project_path, get_project_root
+from cline_utils.dependency_system.utils.path_utils import is_subpath, normalize_path, is_valid_project_path, get_project_root
 from cline_utils.dependency_system.utils.config_manager import ConfigManager
 from cline_utils.dependency_system.utils.cache_manager import cached, invalidate_dependent_entries
 from cline_utils.dependency_system.core.key_manager import generate_keys, validate_key
@@ -94,19 +95,67 @@ def _load_model():
             raise # Re-raise to indicate failure
     return MODEL_INSTANCE
 
+def _preprocess_content_for_embedding(file_path: str, content: str) -> str:
+    """
+    Preprocesses file content before embedding generation.
+    Currently removes Python import lines.
+    Future enhancements: Contextual weighting, comment/docstring handling.
+
+    Args:
+        file_path: The path to the file (used to determine file type).
+        content: The original file content.
+
+    Returns:
+        The preprocessed content string.
+    """
+    # Simple check based on extension for now
+    if file_path.lower().endswith(".py"):
+        lines = content.splitlines()
+        # 1. Remove import lines
+        filtered_lines = [
+            line for line in lines
+            if not (line.strip().startswith("import ") or line.strip().startswith("from "))
+        ]
+
+        # 2. Extract and weight important definitions (AST)
+        weighted_definitions = []
+        try:
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                segment = None
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    # Requires Python 3.8+ and source availability
+                    segment = ast.get_source_segment(content, node)
+
+                if segment:
+                    # Append segment twice for weighting
+                    weighted_definitions.append(segment)
+                    weighted_definitions.append(segment)
+        except SyntaxError:
+            logger.warning(f"Syntax error in {file_path} during AST parsing for weighting. Proceeding without weighting.")
+        except Exception as e:
+            logger.error(f"Error during AST processing for weighting in {file_path}: {e}. Proceeding without weighting.")
+
+        # 3. Combine filtered lines and weighted definitions
+        final_content_list = filtered_lines + weighted_definitions
+        return "\n".join(final_content_list)
+    # TODO: Add preprocessing for other file types if needed (e.g., remove boilerplate HTML/JS?)
+    return content # Return original content for non-Python files
+
 #@cached("embeddings_generation",
 #        key_func=lambda project_paths, force=False:
 #        f"generate_embeddings:{':'.join(normalize_path(p) for p in project_paths)}:{force}:"
 #        f"{os.path.getmtime(ConfigManager().config_path)}")
-def generate_embeddings(project_paths: List[str], force: bool = False) -> Tuple[bool, Dict[str, str]]:
+def generate_embeddings(project_paths: List[str], global_key_map: Dict[str, str], force: bool = False) -> bool: # Added global_key_map, changed return type
     """
     Generate embeddings for all files in the specified project paths. Iterates through each path.
 
     Args:
         project_paths: List of project directory paths (relative to project root)
+        global_key_map: The single, consistent key map for the entire project.
         force: If True, regenerate embeddings even if they exist
     Returns:
-        Tuple of (success: bool, key_map: Dict[str, str]) where key_map maps ALL keys generated across paths to file paths
+        success: bool indicating overall success.
     """
     if not project_paths:
         logger.error("No project paths provided for embedding generation.")
@@ -129,7 +178,7 @@ def generate_embeddings(project_paths: List[str], force: bool = False) -> Tuple[
 
     os.makedirs(embeddings_dir, exist_ok=True) # Ensure base embeddings dir exists
 
-    all_generated_keys = {}  # Accumulate keys across all iterations
+    # Removed: all_generated_keys = {} - Use passed-in global_key_map
     overall_success = True
 
     for relative_path in project_paths:
@@ -158,17 +207,18 @@ def generate_embeddings(project_paths: List[str], force: bool = False) -> Tuple[
                 logger.warning(f"Corrupted or missing metadata file {metadata_file} for {project_name}: {e}. Regenerating.")
                 existing_metadata = {}
 
-        # Collect files and generate keys specifically for this project path
-        # Pass the absolute path to generate_keys
-        current_key_map, _, _ = generate_keys([current_project_path])
-        all_generated_keys.update(current_key_map)  # Accumulate keys
+        # Filter the global_key_map to get keys relevant to the current path
+        keys_for_current_path = {
+            k: p for k, p in global_key_map.items()
+            if is_subpath(normalize_path(p), current_project_path)
+        }
 
-        if not current_key_map:
-            logger.warning(f"No files found or keys generated for path: {current_project_path}")
+        if not keys_for_current_path:
+            logger.warning(f"No keys from global map found within path: {current_project_path}")
             continue # Move to the next project path
 
         file_contents = {}
-        for key, file_path in current_key_map.items():
+        for key, file_path in keys_for_current_path.items(): # Use filtered map
             # Ensure file_path is absolute for reading
             abs_file_path = normalize_path(file_path) # Keys should already store absolute paths from generate_keys
             # Explicitly skip directories first
@@ -206,7 +256,7 @@ def generate_embeddings(project_paths: List[str], force: bool = False) -> Tuple[
 
         # Generate or load embeddings for the current project path
         current_embeddings = {}
-        for key, file_path in current_key_map.items():
+        for key, file_path in keys_for_current_path.items(): # Use filtered map
             abs_file_path = normalize_path(file_path) # Use absolute path
             logger.debug(f"--- Processing embedding for key: {key}, path: {abs_file_path}") # DEBUG Line
             if not os.path.exists(abs_file_path):
@@ -274,11 +324,14 @@ def generate_embeddings(project_paths: List[str], force: bool = False) -> Tuple[
 
             # Generate new or updated embedding if needed
             if should_generate:
-                content = file_contents.get(key, "")
-                if content.strip():
+                original_content = file_contents.get(key, "")
+                # Preprocess content before encoding
+                processed_content = _preprocess_content_for_embedding(abs_file_path, original_content)
+
+                if processed_content.strip(): # Check if content remains after preprocessing
                     try:
-                        logger.debug(f"Encoding content for key: {key}...")
-                        embedding = model.encode(content, show_progress_bar=False, convert_to_numpy=True)
+                        logger.debug(f"Encoding preprocessed content for key: {key}...")
+                        embedding = model.encode(processed_content, show_progress_bar=False, convert_to_numpy=True)
                         current_embeddings[key] = embedding
                         logger.debug(f"Encoding successful for key: {key}.")
 
@@ -312,7 +365,7 @@ def generate_embeddings(project_paths: List[str], force: bool = False) -> Tuple[
 
         # Save metadata for this specific project path
         valid_keys_in_metadata = {}
-        for k, v_path in current_key_map.items():
+        for k, v_path in keys_for_current_path.items(): # Use filtered map
             # Only include keys for which we successfully generated OR loaded (based on should_generate=False)
             # We need to know which ones were skipped due to mtime match
             # Let's refine this: check if the key *exists* in the final set of embeddings for this run
@@ -338,7 +391,7 @@ def generate_embeddings(project_paths: List[str], force: bool = False) -> Tuple[
             # if k in current_embeddings or k in keys_skipped_mtime: # Check if generated OR skipped(up-to-date)
             # ^^^ This requires adding the tracking set. Let's simplify for now:
             # If the key is in the original map for this project path AND the file exists:
-            if k in current_key_map: # Check if it was part of this project path's scan
+            if k in keys_for_current_path: # Use filtered map
                  try:
                     # <<< Ensure path saved is normalized >>>
                     valid_keys_in_metadata[k] = {
@@ -374,7 +427,7 @@ def generate_embeddings(project_paths: List[str], force: bool = False) -> Tuple[
     else:
         logger.warning(f"Embedding generation completed with errors for paths: {project_paths}")
 
-    return overall_success, all_generated_keys
+    return overall_success # Return only boolean status
 
 # @cached("embedding_similarity",
 #        key_func=lambda key1, key2, embeddings_dir:
