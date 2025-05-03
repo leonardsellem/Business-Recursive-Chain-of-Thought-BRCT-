@@ -62,6 +62,55 @@
 
 ---
 
+## IIa. GitOps Workflow Setup (If Enabled)
+
+**Action**: If GitOps workflow is enabled in `.clinerules`, set up the Git environment for the task execution.
+
+**Procedure:**
+1.  **Check GitOps Configuration**: Read the `[GITOPS_WORKFLOW]` section in `.clinerules` to determine if GitOps workflow is enabled and retrieve configuration settings.
+    ```
+    # Example GitOps configuration in .clinerules
+    [GITOPS_WORKFLOW]
+    enabled: true
+    default_base_branch: dev
+    branch_naming_convention: conventional_commits
+    remote_name: origin
+    auto_push: true
+    task_to_branch_mapping:
+      Strategy_*: "chore/{task-name}"
+      Execution_feat_*: "feat/{task-name}"
+      Execution_fix_*: "fix/{task-name}"
+      # ... other mappings
+    ```
+    * If `enabled` is not `true`, skip this section and proceed to Section III.
+    * If `enabled` is `true`, continue with the GitOps workflow setup.
+
+2.  **Verify Current Git Branch**:
+    * Execute `git branch --show-current` to determine the current branch.
+    * If the current branch is not the `default_base_branch` (e.g., `dev`), inform the user and ask if they want to proceed from the current branch or switch to the default branch.
+    * If the user wants to switch, execute `git checkout {default_base_branch}`.
+
+3.  **Map Task Name to Branch Name**:
+    * Extract the task name from the `Execution_{task_name}.md` file.
+    * Apply the mapping rules from `task_to_branch_mapping` in `.clinerules` to determine the appropriate branch name.
+    * For example, if the task is `Execution_feat_user_auth.md`, and the mapping rule is `Execution_feat_*: "feat/{task-name}"`, the branch name would be `feat/user-auth`.
+    * If no specific mapping rule matches, use the default mapping (typically `Execution_*: "feat/{task-name}"`).
+    * State: "Mapping task `Execution_{task_name}.md` to branch name `{branch_name}` based on GitOps configuration."
+
+4.  **Create and Checkout Working Branch**:
+    * Execute `git checkout -b {branch_name}` to create and switch to the new branch.
+    * State: "Created and checked out new branch `{branch_name}` for task execution."
+
+5.  **Update `activeContext.md`**:
+    * Add information about the GitOps workflow setup to `activeContext.md`, including:
+      * The task being executed
+      * The base branch (e.g., `dev`)
+      * The working branch created (e.g., `feat/user-auth`)
+      * The timestamp of branch creation
+    * State: "Updated `activeContext.md` with GitOps workflow information."
+
+---
+
 ## III. Executing Tasks from Instruction Files
 
 **Action**: Execute the step-by-step plan detailed in the loaded Task Instruction file, maintaining awareness of its place in the hierarchy and its dependencies.
@@ -138,7 +187,22 @@
 
 ```mermaid
 flowchart TD
-    A[Start Step] --> B[Understand Step]
+    %% GitOps Setup
+    START[Start Execution Phase] --> GC{GitOps<br>Enabled?}
+    GC -- Yes --> G1[Check Current Branch]
+    GC -- No --> IT[Identify Task]
+    G1 --> G2[Map Task to Branch Name]
+    G2 --> G3[Create & Checkout Branch]
+    G3 --> IT
+    
+    %% Task Context Loading
+    IT --> LP[Load Parent Plan]
+    LP --> LT[Load Task Instruction]
+    LT --> LD[Load Dependencies]
+    LD --> A[Start Step]
+    
+    %% Step Execution
+    A --> B[Understand Step]
     B --> C[Review Dependencies & Read Context Files<br>MANDATORY]
     C --> D{File Modification Step?}
     D -- Yes --> E[Pre-Action Verification<br> with Context]
@@ -154,7 +218,82 @@ flowchart TD
     K --> L{Next Step?}
     L -- Yes --> A
     L -- No --> M[End Task]
+    
+    %% GitOps Post-Task
+    M --> GP{GitOps<br>Enabled?}
+    GP -- Yes --> GP1[Check Git Status]
+    GP -- No --> END[End Execution Phase]
+    GP1 --> GP2[Generate Commit Message]
+    GP2 --> GP3[Stage Changes]
+    GP3 --> GP4[Commit Changes]
+    GP4 --> GP5{Auto Push<br>Enabled?}
+    GP5 -- Yes --> GP6[Push to Remote]
+    GP5 -- No --> GP7[Notify User]
+    GP6 --> END
+    GP7 --> END
 ```
+
+---
+
+## IIIa. GitOps Post-Task Operations (If Enabled)
+
+**Action**: If GitOps workflow is enabled in `.clinerules` and all task steps have been completed, perform Git operations to commit and push changes.
+
+**Procedure:**
+1.  **Check GitOps Configuration**: Read the `[GITOPS_WORKFLOW]` section in `.clinerules` to determine if GitOps workflow is enabled and if `auto_push` is set to `true`.
+    * If `enabled` is not `true`, skip this section and proceed to Section IV.
+    * If `enabled` is `true`, continue with the GitOps post-task operations.
+
+2.  **Check Git Status**:
+    * Execute `git status` to see what files have been modified, added, or deleted.
+    * State: "Checking Git status to identify changes made during task execution."
+    * Analyze the output to identify the files that were modified as part of the task execution.
+
+3.  **Generate Commit Message**:
+    * Based on the task name and the changes made, generate a meaningful commit message following the Conventional Commits specification.
+    * The commit message should have:
+      * A type prefix (e.g., `feat:`, `fix:`, `docs:`, `refactor:`, etc.) derived from the branch name or task type
+      * A concise summary of the changes
+      * A more detailed description in the commit body if necessary
+    * Example: For a task named `Execution_feat_user_auth.md` that implemented user authentication:
+      ```
+      feat: implement user authentication system
+      
+      - Add login and registration endpoints
+      - Create user model with password hashing
+      - Implement JWT token generation and validation
+      ```
+    * State: "Generated commit message based on task and changes."
+
+4.  **Stage Changes**:
+    * Execute `git add .` to stage all changes.
+    * Alternatively, if more selective staging is required, execute `git add {file1} {file2} ...` for specific files.
+    * State: "Staged changes for commit."
+
+5.  **Commit Changes**:
+    * Execute `git commit -m "{commit_message}"` to commit the staged changes.
+    * If a multi-line commit message is used, execute:
+      ```
+      git commit -m "{commit_message_title}" -m "{commit_message_body}"
+      ```
+    * State: "Committed changes with message: `{commit_message}`."
+
+6.  **Push Changes (If Configured)**:
+    * If `auto_push` is set to `true` in the GitOps configuration:
+      * Execute `git push -u {remote_name} {branch_name}` to push the changes to the remote repository.
+      * State: "Pushed changes to remote repository `{remote_name}` on branch `{branch_name}`."
+    * If `auto_push` is not set to `true`:
+      * Inform the user that changes have been committed but not pushed.
+      * Provide the command they can use to push the changes manually.
+      * State: "Changes have been committed but not pushed. To push manually, use: `git push -u {remote_name} {branch_name}`."
+
+7.  **Update `activeContext.md`**:
+    * Add information about the GitOps post-task operations to `activeContext.md`, including:
+      * The files that were modified
+      * The commit message
+      * Whether the changes were pushed to the remote repository
+      * The timestamp of the commit/push
+    * State: "Updated `activeContext.md` with GitOps post-task operation information."
 
 ---
 
@@ -202,14 +341,27 @@ After Core MUP steps (Section VI of Core Prompt), performed *after each step* of
 ## V. Quick Reference
 - **Objective**: Execute planned `Execution_*` tasks step-by-step, modifying files/code according to instructions, dependencies, and quality guidelines.
 - **Key Actions**:
-    - Load context: Parent Plan -> Task Instruction -> Dependencies (`show-dependencies` + `read_file`).
-    - Execute steps sequentially.
-    - **MANDATORY**: Review dependencies & **read context files** before coding/modification.
-    - **MANDATORY**: Perform pre-action verification for file modifications.
-    - Follow code quality guidelines.
-    - Document results (Mini-CoT) after each action.
-    - Perform MUP after each action.
-    - Update mini-trackers (`add-dependency`) if new functional dependencies are created.
-- **Key Inputs**: Prioritized Task list (from Strategy), `implementation_plan_*.md`, `Execution_*.md`, dependency tracker info (`show-dependencies`), content of dependent files (`read_file`).
-- **Key Outputs**: Modified project files (code, docs), updated `activeContext.md`, updated task instruction files, potentially updated mini-trackers, updated `.clinerules`.
+    - **GitOps Setup (If Enabled)**:
+        - Check GitOps configuration in `.clinerules`
+        - Verify current branch (default: `dev`)
+        - Map task name to branch name using configured mappings
+        - Create and checkout working branch
+        - Update `activeContext.md` with branch information
+    - **Task Execution**:
+        - Load context: Parent Plan -> Task Instruction -> Dependencies (`show-dependencies` + `read_file`).
+        - Execute steps sequentially.
+        - **MANDATORY**: Review dependencies & **read context files** before coding/modification.
+        - **MANDATORY**: Perform pre-action verification for file modifications.
+        - Follow code quality guidelines.
+        - Document results (Mini-CoT) after each action.
+        - Perform MUP after each action.
+        - Update mini-trackers (`add-dependency`) if new functional dependencies are created.
+    - **GitOps Post-Task (If Enabled)**:
+        - Check Git status to identify changes
+        - Generate conventional commit message
+        - Stage and commit changes
+        - Push to remote if auto-push enabled
+        - Update `activeContext.md` with commit information
+- **Key Inputs**: Prioritized Task list (from Strategy), `implementation_plan_*.md`, `Execution_*.md`, dependency tracker info (`show-dependencies`), content of dependent files (`read_file`), GitOps configuration (if enabled).
+- **Key Outputs**: Modified project files (code, docs), updated `activeContext.md`, updated task instruction files, potentially updated mini-trackers, updated `.clinerules`, Git commits and branches (if GitOps enabled).
 - **MUP Additions**: Update instruction files (step completion, notes), mini-trackers (if needed), potentially Plans/Modules, and `.clinerules`.
