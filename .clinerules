@@ -6,7 +6,7 @@ n + 1 = (x)
 last_action: "System Initialized"
 current_phase: "Set-up/Maintenance"
 next_action: "Initialize Core Files"
-next_phase: "Strategy"
+next_phase: "Set-up/Maintenance"
 
 [VIRTUAL_ENVIRONMENT]
 location: "../.venv"
