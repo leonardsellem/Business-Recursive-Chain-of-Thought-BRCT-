@@ -6,6 +6,12 @@ clinerules_path: ".crct/.clinerules"
 notes: "This is a reference file. All CRCT system configuration is stored in the .crct submodule."
 
 [INSTRUCTIONS]
-- Do not modify this file directly.
+- Do not modify the [SUBMODULE_REFERENCE] section.
 - To configure the CRCT system, edit the .crct/.clinerules file.
-- All CRCT system output is stored in the .crct directory.
+- CRCT system files are stored in the .crct directory.
+- Project-specific documentation is stored in the cline_docs directory.
+- Project-specific configuration can be added to the [PROJECT_CONFIGURATION] section below.
+
+[PROJECT_CONFIGURATION]
+# Add project-specific configuration here
+memory_dir: "cline_docs"
