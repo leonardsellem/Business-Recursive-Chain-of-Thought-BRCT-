@@ -8,13 +8,18 @@ current_phase: "Set-up/Maintenance"
 next_action: "Initialize Core Files"
 next_phase: "Set-up/Maintenance"
 
+[VIRTUAL_ENVIRONMENT]
+location: "../.venv"
+setup_required: false
+notes: "Using the existing virtual environment in the parent directory"
+
 ---
 
 [CODE_ROOT_DIRECTORIES]
-- src
+- ../src
 
 [DOC_DIRECTORIES]
-- docs
+- ../docs
 
 [LEARNING_JOURNAL]
 - Regularly updating {memory_dir} and any instruction files help me to remember what I have done and what still needs to be done so I don't lose track.

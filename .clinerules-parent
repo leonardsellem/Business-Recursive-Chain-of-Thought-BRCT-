@@ -1,0 +1,11 @@
+# CRCT System Parent Configuration
+# This file points to the actual .clinerules file in the .crct submodule
+
+[SUBMODULE_REFERENCE]
+clinerules_path: ".crct/.clinerules"
+notes: "This is a reference file. All CRCT system configuration is stored in the .crct submodule."
+
+[INSTRUCTIONS]
+- Do not modify this file directly.
+- To configure the CRCT system, edit the .crct/.clinerules file.
+- All CRCT system output is stored in the .crct directory.
