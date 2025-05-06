@@ -81,6 +81,8 @@ This order is crucial because Mini-Trackers capture detailed cross-directory dep
 *   **Do NOT read tracker files directly** for dependency information; use `show-keys` and `show-dependencies`.
 *   Run `analyze-project` *before* starting this verification process if significant code/doc changes have occurred since the last run, or upon entering this phase (as done in Section II).
 
+*It is critical that the documentation is **Exhaustively** cross referenced against the code. The code can not be completed properly if the docs that define it are not listed as a dependency*
+
 **Procedure:**
 
 1.  **Run Project Analysis (Initial & Updates)**:
@@ -165,6 +167,7 @@ This order is crucial because Mini-Trackers capture detailed cross-directory dep
         *   **Final Check**: Run `show-keys --tracker <path_to_module_relationship_tracker.md>` again to confirm no checks needed remain.
     *   **MUP**: Perform MUP after verifying `module_relationship_tracker.md`. Update `last_action`. State: "Completed verification for module_relationship_tracker.md."
 
+*Keys must be set from each perspective, as each *row* has its own dependency list.*
 5.  **Completion**: Once all three stages are complete and `show-keys` reports no `(checks needed: ...)` for `doc_tracker.md`, all mini-trackers, and `module_relationship_tracker.md`, the tracker verification part of Set-up/Maintenance is done. Check if all other phase exit criteria (Section I) are met (e.g., core files exist, code/doc roots identified). If so, prepare to exit the phase by updating `.clinerules` as per Section I.
 
 *If a dependency is detected in **either** direction 'n' should not be used. Choose the best character to represent the directional dependency or 'd' if it is a documentation dependency.*
