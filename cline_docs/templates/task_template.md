@@ -21,7 +21,7 @@ This document provides detailed, procedural guidance for a specific task.
 3. {Step 3}
 ...
 
-## Dependencies
+## Dependencies **This *MUST* include dependencies from tracker files**
 - Requires: [{Task1}], [{Module2}]  *(Manually manage these)*
 - Blocks: [{Task3}], [{Task4}]   *(Manually manage these)*
 

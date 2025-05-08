@@ -43,11 +43,11 @@ from cline_utils.dependency_system.utils.config_manager import ConfigManager
 from cline_utils.dependency_system.utils.cache_manager import (
     clear_all_caches, file_modified, invalidate_dependent_entries
 )
-# <<< MODIFIED IMPORT: Import from tracker_utils >>>
 from cline_utils.dependency_system.utils.tracker_utils import (
     read_tracker_file, find_all_tracker_paths, aggregate_all_dependencies
 )
 
+from cline_utils.dependency_system.utils.template_generator import add_code_doc_dependency_to_checklist, _get_item_type as get_item_type_for_checklist # Renamed for clarity
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -57,7 +57,6 @@ KEY_DEFINITIONS_START_MARKER = "---KEY_DEFINITIONS_START---"
 KEY_DEFINITIONS_END_MARKER = "---KEY_DEFINITIONS_END---"
 
 # --- Helper Functions ---
-
 def _load_global_map_or_exit() -> Dict[str, KeyInfo]:
     """Loads the global key map, exiting if it fails."""
     logger.info("Loading global key map...")
@@ -199,13 +198,12 @@ def handle_add_dependency(args: argparse.Namespace) -> int:
     """Handle the add-dependency command. Allows adding foreign keys to mini-trackers."""
     tracker_path = normalize_path(args.tracker)
     is_mini_tracker = tracker_path.endswith("_module.md")
-    source_key = args.source_key
-    target_keys = args.target_key # This is a list
+    source_key_str = args.source_key # Renamed for clarity
+    target_keys_str_list = args.target_key # Renamed for clarity
     dep_type = args.dep_type
     # Dependency type validation
     ALLOWED_DEP_TYPES = {'<', '>', 'x', 'd', 'o', 'n', 'p', 's', 'S'}
-
-    logger.info(f"Attempting to add dependency: {source_key} -> {target_keys} ({dep_type}) in tracker {tracker_path}")
+    logger.info(f"Attempting to add dependency: {source_key_str} -> {target_keys_str_list} ({dep_type}) in tracker {tracker_path}")
 
     # --- Basic Validation ---
     if dep_type not in ALLOWED_DEP_TYPES:
@@ -214,99 +212,121 @@ def handle_add_dependency(args: argparse.Namespace) -> int:
 
     # --- Load Local Tracker Data ---
     tracker_data = read_tracker_file(tracker_path)
-    if not tracker_data or not tracker_data.get("keys"):
+    local_keys_map = {} # key_string -> path_string
+    if tracker_data and tracker_data.get("keys"):
+        local_keys_map = tracker_data.get("keys", {})
+    elif not is_mini_tracker: # For main/doc, tracker must exist with keys
         print(f"Error: Could not read tracker or no keys found: {tracker_path}")
-        # If it's a mini-tracker that doesn't exist yet, update_tracker might handle creation
-        if not is_mini_tracker:
-            return 1
-        else:
-            logger.warning(f"Mini-tracker {tracker_path} not found or invalid, proceeding to update_tracker for potential creation.")
-            # Allow proceeding, update_tracker handles creation
-            local_keys = {}
-            local_grid = {}
-            local_sorted_keys = []
-    else:
-        local_keys = tracker_data.get("keys", {}) # key_string -> path_string map
-        local_grid = tracker_data.get("grid", {})
-        local_sorted_keys = sort_key_strings_hierarchically(list(local_keys.keys()))
-
-
-    # --- Validate Source Key Locally (if tracker exists) ---
-    if local_keys and source_key not in local_keys:
-        print(f"Error: Source key '{source_key}' not found in tracker '{tracker_path}'.")
         return 1
+    # If it's a mini-tracker and doesn't exist, update_tracker will handle creation.
+
+    # --- Load global map and config (needed for item type and checklist) ---
+    # Load ONCE and use this instance throughout the function.
+    loaded_global_path_to_key_info = _load_global_map_or_exit() 
+    if loaded_global_path_to_key_info is None: # Safeguard, though _load_global_map_or_exit should exit
+        logger.critical("handle_add_dependency: global_path_to_key_info is None after _load_global_map_or_exit.")
+        print("Critical Error: Global key map could not be loaded. Aborting add-dependency.", file=sys.stderr)
+        return 1
+        
+    config = ConfigManager()
+    project_root = get_project_root() # Needed by get_item_type_for_checklist
+
+    # Get KeyInfo for source using the loaded map
+    source_key_info = next((info for info in loaded_global_path_to_key_info.values() if info.key_string == source_key_str), None)
+    if not source_key_info:
+        print(f"Error: Source key '{source_key_str}' not found in global key map.")
+        return 1
+    source_item_type = get_item_type_for_checklist(source_key_info.norm_path, config, project_root)
 
     # --- Process Target Keys ---
     internal_changes = [] # List of (target_key, dep_type) for local targets
     foreign_adds = []     # List of (target_key, dep_type) for valid foreign targets (mini-trackers only)
-    global_map_loaded = False
-    global_path_to_key_info = None
+    checklist_updates_pending = [] # Store (source_key, target_key, dep_type) for checklist
 
-    for target_key in target_keys:
-        if target_key == source_key:
-             logger.warning(f"Skipping self-dependency: {source_key} -> {target_key}")
+    for target_key_str in target_keys_str_list:
+        if target_key_str == source_key_str:
+             logger.warning(f"Skipping self-dependency: {source_key_str} -> {target_key_str}")
              continue
 
-        if target_key in local_keys:
-            # Target exists locally, treat as internal change
-            internal_changes.append((target_key, dep_type))
-            logger.debug(f"Target '{target_key}' found locally. Queued for internal update.")
-        elif is_mini_tracker:
-            # Target missing locally, BUT it's a mini-tracker - check globally
-            logger.debug(f"Target '{target_key}' not found locally in mini-tracker. Checking globally...")
-            if not global_map_loaded:
-                # <<< USE UTILITY >>>
-                global_path_to_key_info = _load_global_map_or_exit()
-                global_map_loaded = True # Mark as loaded
+        # Use the 'loaded_global_path_to_key_info' which holds the actual map
+        target_key_info = next((info for info in loaded_global_path_to_key_info.values() if info.key_string == target_key_str), None)
+        if not target_key_info:
+            print(f"Error: Target key '{target_key_str}' not found in global key map. Cannot add dependency.")
+            return 1 
+        
+        target_item_type = get_item_type_for_checklist(target_key_info.norm_path, config, project_root)
 
-            # Check existence using the loaded map
-            target_exists_globally = any(info.key_string == target_key for info in global_path_to_key_info.values())
-            if target_exists_globally:
-                foreign_adds.append((target_key, dep_type))
-                logger.info(f"Target '{target_key}' is valid globally. Queued for foreign key addition.")
-            else:
-                print(f"Error: Target key '{target_key}' not found locally or globally. Cannot add dependency.")
-                # Decide if we should stop entirely or just skip this target
-                return 1 # Stop on first invalid target key
+        # Check if this is a code-doc or doc-code link
+        if (source_item_type == "code" and target_item_type == "doc") or \
+           (source_item_type == "doc" and target_item_type == "code"):
+            checklist_updates_pending.append((source_key_str, target_key_str, dep_type))
+            logger.info(f"Identified code-doc link for checklist: {source_key_str} ({source_item_type}) -> {target_key_str} ({target_item_type})")
+
+
+        if target_key_str in local_keys_map:
+            internal_changes.append((target_key_str, dep_type))
+            logger.debug(f"Target '{target_key_str}' found locally. Queued for internal update.")
+        elif is_mini_tracker:
+            # No need to reload or check global_map_loaded anymore.
+            # 'loaded_global_path_to_key_info' is already available and verified.
+            # The target_key_info check above already confirms its global existence.
+            foreign_adds.append((target_key_str, dep_type))
+            logger.info(f"Target '{target_key_str}' is valid globally. Queued for foreign key addition to mini-tracker.")
         else:
-            # Target missing locally and it's NOT a mini-tracker - standard error
-            print(f"Error: Target key '{target_key}' not found in tracker '{tracker_path}'.")
-            return 1 # Stop on first invalid target key
+            print(f"Error: Target key '{target_key_str}' not found in tracker '{tracker_path}' (and it's not a mini-tracker allowing foreign key addition).")
+            return 1
 
     # --- Combine all changes ---
     all_targets_for_source = internal_changes + foreign_adds
-    if not all_targets_for_source:
-        print("No valid dependencies specified or identified."); return 0
+    if not all_targets_for_source and not checklist_updates_pending: # Check if anything to do for tracker OR checklist
+        print("No valid dependencies specified or identified to apply to tracker or checklist.")
+        return 0
 
-    # --- Prepare data for update_tracker ---
-    suggestions_for_update = {source_key: all_targets_for_source}
-    force_apply = True # Always force apply from add-dependency
-
-    # Load global map if not already loaded (needed for file_to_module)
-    if not global_map_loaded:
-        global_path_to_key_info = _load_global_map_or_exit()
-
-    # Generate file_to_module map (needed by update_tracker even if no foreign keys added this time)
-    file_to_module_map = {info.norm_path: info.parent_path for info in global_path_to_key_info.values() if not info.is_directory and info.parent_path}
+    suggestions_for_update = {source_key_str: all_targets_for_source} if all_targets_for_source else None # Pass None if list is empty
+    
+    # Generate file_to_module map using the correctly loaded global map
+    file_to_module_map = {
+        info.norm_path: info.parent_path
+        for info in loaded_global_path_to_key_info.values() # Use the loaded map
+        if not info.is_directory and info.parent_path
+    }
 
     # --- Call update_tracker for ALL cases (mini, main, doc) ---
     # Let update_tracker handle type determination, reading, writing, content preservation
     try:
-        logger.info(f"Calling update_tracker for {tracker_path} (Force Apply: {force_apply})")
-        update_tracker(
-            output_file_suggestion=tracker_path, # Pass path for context/determination
-            path_to_key_info=global_path_to_key_info,
-            tracker_type="mini" if is_mini_tracker else ("doc" if "doc_tracker.md" in tracker_path else "main"),
-            suggestions=suggestions_for_update,
-            file_to_module=file_to_module_map,
-            new_keys=None, # add-dependency doesn't introduce globally new keys
-            force_apply_suggestions=force_apply
-        )
-        print(f"Successfully updated tracker {tracker_path} with dependencies.")
+        if suggestions_for_update: # Only call update_tracker if there are tracker changes
+            logger.info(f"Calling update_tracker for {tracker_path} (Force Apply: True)")
+            update_tracker(
+                output_file_suggestion=tracker_path,
+                path_to_key_info=loaded_global_path_to_key_info, # Pass the loaded map
+                tracker_type="mini" if is_mini_tracker else ("doc" if "doc_tracker.md" in tracker_path else "main"),
+                suggestions=suggestions_for_update,
+                file_to_module=file_to_module_map,
+                new_keys=None,
+                force_apply_suggestions=True 
+            )
+            print(f"Successfully updated tracker {tracker_path} with dependencies.")
+        else:
+            logger.info(f"No direct tracker updates needed for {tracker_path}, but proceeding with checklist updates if any.")
+
+        # After successfully updating the tracker (or if no tracker update was needed but checklist is), update checklist
+        if checklist_updates_pending:
+            logger.info(f"Attempting to update checklist with {len(checklist_updates_pending)} code-doc dependencies.")
+            all_checklist_adds_successful = True
+            for src_k, tgt_k, dep_t in checklist_updates_pending:
+                if not add_code_doc_dependency_to_checklist(src_k, tgt_k, dep_t):
+                    all_checklist_adds_successful = False
+                    logger.error(f"Failed to add {src_k} -> {tgt_k} ({dep_t}) to checklist.")
+                else:
+                    print(f"Added dependency {src_k} -> {tgt_k} ({dep_t}) to review checklist.")
+            if not all_checklist_adds_successful:
+                print("Warning: Some code-doc dependencies could not be added to the review checklist.")
+                # Optionally, change exit code or overall status if this is critical
+        
         return 0
     except Exception as e:
-        logger.error(f"Error calling update_tracker for {tracker_path}: {e}", exc_info=True)
-        print(f"Error updating tracker {tracker_path}: {e}")
+        logger.error(f"Error during add-dependency processing for {tracker_path}: {e}", exc_info=True)
+        print(f"Error processing add-dependency for {tracker_path}: {e}")
         return 1
 
 def handle_merge_trackers(args: argparse.Namespace) -> int:
@@ -412,10 +432,8 @@ def handle_show_dependencies(args: argparse.Namespace) -> int:
             # Find path for the dependency key
             dep_info = next((info for info in path_to_key_info.values() if info.key_string == dep_key_str), None)
             dep_path_str = dep_info.norm_path if dep_info else "PATH_NOT_FOUND_GLOBALLY"
-
             # Add to the correct category for display
             all_dependencies_by_type[display_char].add((dep_key_str, dep_path_str))
-
             # Track origins specifically for p/s/S if needed for display
             if display_char in ('p', 's', 'S'):
                 origin_tracker_map_display[display_char][dep_key_str].update(origins)
@@ -426,27 +444,26 @@ def handle_show_dependencies(args: argparse.Namespace) -> int:
         ("Semantic (Weak) ('s')", 's'), ("Depends On ('<')", '<'), ("Depended On By ('>')", '>'),
         ("Placeholders ('p')", 'p')
     ]
-    for section_title, dep_char in output_sections:
+    for section_title, dep_char_filter in output_sections: # Renamed dep_char to avoid conflict
         print(f"\n{section_title}:")
-        dep_set = all_dependencies_by_type.get(dep_char)
+        dep_set = all_dependencies_by_type.get(dep_char_filter)
         if dep_set:
             # Define helper for hierarchical sorting
-            def _hierarchical_sort_key_func(key_str: str):
-                KEY_PATTERN = r'\d+|\D+' # Pattern from key_manager
-                if not key_str or not isinstance(key_str, str): return []
-                parts = re.findall(KEY_PATTERN, key_str)
+            def _hierarchical_sort_key_func(key_str_local: str): # Renamed key_str
+                KEY_PATTERN = r'\d+|\D+' 
+                if not key_str_local or not isinstance(key_str_local, str): return []
+                parts = re.findall(KEY_PATTERN, key_str_local)
                 try:
                     return [(int(p) if p.isdigit() else p) for p in parts]
                 except (ValueError, TypeError): # Fallback
-                    logger.warning(f"Could not convert parts for sorting display key '{key_str}'")
+                    logger.warning(f"Could not convert parts for sorting display key '{key_str_local}'")
                     return parts
-
             sorted_deps = sorted(list(dep_set), key=lambda item: _hierarchical_sort_key_func(item[0]))
             for dep_key, dep_path in sorted_deps:
                 # Check for and add origin info for p/s/S
                 origin_info = ""
-                if dep_char in ('p', 's', 'S'):
-                    origins = origin_tracker_map_display.get(dep_char, {}).get(dep_key, set())
+                if dep_char_filter in ('p', 's', 'S'):
+                    origins = origin_tracker_map_display.get(dep_char_filter, {}).get(dep_key, set())
                     if origins:
                         # Format origin filenames nicely
                         origin_filenames = sorted([os.path.basename(p) for p in origins])
@@ -472,9 +489,8 @@ def handle_show_keys(args: argparse.Namespace) -> int:
         print(f"Error: Tracker file not found: {tracker_path}", file=sys.stderr)
         logger.error(f"Tracker file not found: {tracker_path}")
         return 1
-
     try:
-        tracker_data = read_tracker_file(tracker_path) # Use cached read
+        tracker_data = read_tracker_file(tracker_path) 
         if not tracker_data:
             print(f"Error: Could not read or parse tracker file: {tracker_path}", file=sys.stderr)
             return 1
@@ -508,7 +524,6 @@ def handle_show_keys(args: argparse.Namespace) -> int:
                     if 's' in compressed_row: found_chars.append('s')
                     if 'S' in compressed_row: found_chars.append('S')
                     if found_chars:
-                        # Sort for consistent output order (e.g., p, s, S)
                         sorted_chars = sorted(found_chars)
                         chars_str = ", ".join(sorted_chars)
                         check_indicator = f" (checks needed: {chars_str})" # Updated indicator format
@@ -587,10 +602,10 @@ def handle_visualize_dependencies(args: argparse.Namespace) -> int:
     # Combine mutual/resolved links
     final_edges_to_draw_step1.extend(temp_mutual_edges)
     # Add remaining directional links if their pair wasn't processed
-    for (source, target), char in temp_directional_map.items():
+    for (source, target), char_val in temp_directional_map.items():
          pair = tuple(sorted((source, target)))
          if pair not in processed_pairs_final:
-              final_edges_to_draw_step1.append((source, target, char)); processed_pairs_final.add(pair)
+              final_edges_to_draw_step1.append((source, target, char_val)); processed_pairs_final.add(pair)
     logger.info(f"Prepared {len(final_edges_to_draw_step1)} intermediate edges for drawing.")
 
     # --- Filter by --key ---
@@ -600,9 +615,9 @@ def handle_visualize_dependencies(args: argparse.Namespace) -> int:
         if not target_info: print(f"Error: Focus key '{target_key_str}' not found."); return 1
         print(f"Filtering visualization to focus on key: {target_key_str}")
         edges_for_key = []; relevant_keys = {target_key_str}
-        for k1, k2, char in final_edges_to_draw_step1:
+        for k1, k2, char_val in final_edges_to_draw_step1: # Renamed char
             if k1 == target_key_str or k2 == target_key_str:
-                edges_for_key.append((k1, k2, char)); relevant_keys.add(k1); relevant_keys.add(k2)
+                edges_for_key.append((k1, k2, char_val)); relevant_keys.add(k1); relevant_keys.add(k2)
         final_edges_to_draw_step2 = edges_for_key
         logger.info(f"Filtered to {len(final_edges_to_draw_step2)} edges and {len(relevant_keys)} keys.")
     else:
@@ -615,16 +630,16 @@ def handle_visualize_dependencies(args: argparse.Namespace) -> int:
     structural_removed = 0; type_mismatch_removed = 0; placeholder_removed = 0
     key_string_to_info_map = {info.key_string: info for info in global_path_to_key_info.values()} # Cache lookup
 
-    for k1, k2, char in final_edges_to_draw_step2:
+    for k1, k2, char_val in final_edges_to_draw_step2:
         # Skip placeholders
-        if char == 'p': placeholder_removed += 1; continue
+        if char_val == 'p': placeholder_removed += 1; continue
         # Skip structural 'x'
-        if char == 'x' and is_parent_child(k1, k2, global_path_to_key_info): structural_removed += 1; continue
+        if char_val == 'x' and is_parent_child(k1, k2, global_path_to_key_info): structural_removed += 1; continue
         # Skip file-dir/dir-file mismatches
         info1 = key_string_to_info_map.get(k1); info2 = key_string_to_info_map.get(k2)
         if not info1 or not info2: continue # Skip if key info is missing
         if info1.is_directory != info2.is_directory: type_mismatch_removed += 1; continue
-        final_edges_to_draw.append((k1, k2, char))
+        final_edges_to_draw.append((k1, k2, char_val))
     logger.info(f"Edges removed: Structural 'x'({structural_removed}), Type Mismatch({type_mismatch_removed}), Placeholders({placeholder_removed})")
     logger.info(f"Final count of edges to draw: {len(final_edges_to_draw)}")
 
@@ -639,9 +654,9 @@ def handle_visualize_dependencies(args: argparse.Namespace) -> int:
     queue = list(final_relevant_keys); visited_for_hierarchy = set(final_relevant_keys)
     # BFS/DFS to find all necessary parent nodes for hierarchy structure
     while queue:
-        key_str = queue.pop(0); info = key_string_to_info_map.get(key_str)
+        key_str_local = queue.pop(0); info = key_string_to_info_map.get(key_str_local) # Renamed key_str
         if not info: continue
-        processed_nodes_for_hierarchy.add(key_str)
+        processed_nodes_for_hierarchy.add(key_str_local)
         parent_path = normalize_path(info.parent_path) if info.parent_path else None
         parent_to_children[parent_path].append(info)
         if parent_path:
@@ -664,17 +679,16 @@ def handle_visualize_dependencies(args: argparse.Namespace) -> int:
         nonlocal mermaid_string, defined_nodes
         # Sort children based on their key string using hierarchical sort
         children_infos = parent_to_children.get(parent_norm_path, [])
-        children = sorted(children_infos, key=lambda i: sort_key_strings_hierarchically([i.key_string])[0])
-        parent_info = global_path_to_key_info.get(parent_norm_path) if parent_norm_path else None
+        children_sorted = sorted(children_infos, key=lambda i: sort_key_strings_hierarchically([i.key_string])[0]) # Renamed children
+        parent_info_local = global_path_to_key_info.get(parent_norm_path) if parent_norm_path else None # Renamed parent_info
 
         # Determine indentation based on path depth (simple approximation)
         indent = "  " * (parent_norm_path.count('/') if parent_norm_path else 0)
         subgraph_declared = False
-        if parent_info:
-             # Only declare subgraph if it or its children are needed
-             parent_key_str = parent_info.key_string
-             if parent_key_str in nodes_in_scope or any(child.key_string in nodes_in_scope for child in children):
-                 parent_basename = os.path.basename(parent_info.norm_path)
+        if parent_info_local:
+             parent_key_str = parent_info_local.key_string
+             if parent_key_str in nodes_in_scope or any(child.key_string in nodes_in_scope for child in children_sorted):
+                 parent_basename = os.path.basename(parent_info_local.norm_path)
                  mermaid_string += f'{indent}subgraph {parent_key_str} ["{parent_basename}"]\n'
                  # Optional: Set direction within subgraph
                  # mermaid_string += f'{indent}  direction LR\n'
@@ -690,7 +704,7 @@ def handle_visualize_dependencies(args: argparse.Namespace) -> int:
                      pass # Let recursion handle sub-subgraphs first
 
         # Process Children
-        for child_info in children:
+        for child_info in children_sorted:
             child_key = child_info.key_string
             # Skip if node isn't relevant for the final viz OR already defined
             if child_key not in nodes_in_scope or child_key in defined_nodes: continue
@@ -721,12 +735,11 @@ def handle_visualize_dependencies(args: argparse.Namespace) -> int:
     grouped_edges: Dict[Tuple[str, str, str], List[str]] = defaultdict(list)
     arrow_map = {'x': '<-->', 's': '-.->', 'S': '==>'} # Map special chars to arrows
 
-    for k1, k2, dep_char in final_edges_to_draw:
+    for k1, k2, dep_char_val in final_edges_to_draw:
         # Ensure both nodes were needed (redundant check, but safe)
         if k1 not in all_keys_for_node_defs or k2 not in all_keys_for_node_defs: continue
-        label = dep_char_to_label.get(dep_char, dep_char)
-        # Determine arrow type based on final resolved character
-        arrow = arrow_map.get(dep_char, '-->') # Default arrow
+        label = dep_char_to_label.get(dep_char_val, dep_char_val)
+        arrow = arrow_map.get(dep_char_val, '-->') 
         group_key = (k1, label, arrow)
         grouped_edges[group_key].append(k2)
     # Get unique source keys first
@@ -734,14 +747,13 @@ def handle_visualize_dependencies(args: argparse.Namespace) -> int:
     # Sort the list using the hierarchical sort function
     sorted_unique_sources = sort_key_strings_hierarchically(list_of_unique_sources)
     # Iterate through sorted sources, then grouped edges for that source
-    for source_key in sorted_unique_sources: # Use the correctly sorted list
+    for source_key_local in sorted_unique_sources: # Use the correctly sorted list
         # Find all groups starting with this source key
-        source_groups = [(key, targets) for key, targets in grouped_edges.items() if key[0] == source_key]
-        # Sort groups by label for consistent output order within a source
+        source_groups = [(key, targets_list) for key, targets_list in grouped_edges.items() if key[0] == source_key_local] # Sort groups by label for consistent output order within a source
         source_groups.sort(key=lambda item: item[0][1])
-        for (src, label, arrow), targets in source_groups:
+        for (src, label, arrow), targets_list_val in source_groups:
             # Sort targets hierarchically
-            sorted_targets = sort_key_strings_hierarchically(targets)
+            sorted_targets = sort_key_strings_hierarchically(targets_list_val)
             targets_str = " & ".join(sorted_targets)
             mermaid_string += f'  {src} {arrow}|"{label}"| {targets_str}\n'
 
