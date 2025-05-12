@@ -1,63 +1,24 @@
-# Cline Recursive Chain-of-Thought System (CRCT) - v7.8
+# Business Recursive Chain-of-Thought Framework (BRCT) - v1.1.1 (based on CRCT v7.2)
 
-Welcome to the **Cline Recursive Chain-of-Thought System (CRCT)**, a framework designed to manage context, dependencies, and tasks in large-scale Cline projects within VS Code. Built for the Cline extension, CRCT leverages a recursive, file-based approach with a modular dependency tracking system to maintain project state and efficiency as complexity increases.
-
-- Version **v7.8**: Introduces dependency visualization, overhauls the Strategy phase for iterative roadmap planning, and refines Hierarchical Design Token Architecture (HDTA) templates.
-    - **Dependency Visualization (`visualize-dependencies`)**:
-        - Added a new command to generate Mermaid diagrams visualizing project dependencies.
-        - Supports project overview, module-focused (internal + interface), and multi-key focused views.
-        - Auto-generates overview and module diagrams during `analyze-project` (configurable).
-        - Diagrams saved by default to `<memory_dir>/dependency_diagrams/`.
-    - **Strategy Phase Overhaul (`strategy_plugin.md`):**
-        - Replaced monolithic planning with an **iterative, area-based workflow** focused on minimal context loading, making it more robust for LLM execution.
-        - Clarified primary objective as **hierarchical project roadmap construction and maintenance** using HDTA.
-        - Integrated instructions for leveraging dependency diagrams (auto-generated or on-demand) to aid analysis.
-        - Refined state management (`.clinerules` vs. `activeContext.md`).
-    - **HDTA Template Updates**:
-        - Reworked `implementation_plan_template.md` for objective/feature focus.
-        - Added clarifying instructions to `module_template.md` and `task_template.md`.
-        - Created new `roadmap_summary_template.md` for unified cycle plans.
-- Version **v7.7**: Restructured core prompt/plugins, introduced `cleanup_consolidation_plugin.md` phase (use with caution due to file operations), added `hdta_review_progress` and `hierarchical_task_checklist` templates.
-- Version **v7.5**: Significant baseline restructuring, establishing core architecture, Contextual Keys (`KeyInfo`), Hierarchical Dependency Aggregation, enhanced `show-dependencies`, configurable embedding device, file exclusion patterns, improved caching & batch processing.
+Welcome to the **Business Recursive Chain-of-Thought Framework (BRCT)**, an adaptation of the Cline Recursive Chain-of-Thought System (CRCT) v7.2 specifically designed for business innovation processes. Built upon the powerful CRCT system, BRCT leverages a recursive, file-based approach to support ideation, evaluation, and implementation of business innovations while maintaining comprehensive dependency tracking between business factors, now enhanced by CRCT's modular dependency system.
 
 ---
 
 ## Key Features
 
-- **Recursive Decomposition**: Breaks tasks into manageable subtasks, organized via directories and files for isolated context management.
-- **Minimal Context Loading**: Loads only essential data, expanding via dependency trackers as needed.
-- **Persistent State**: Uses the VS Code file system to store context, instructions, outputs, and dependencies. State integrity is rigorously maintained via a **Mandatory Update Protocol (MUP)** applied after actions and periodically during operation.
-- **Modular Dependency System**: Fully modularized dependency tracking system.
-- **Contextual Keys**: Introduces `KeyInfo` for context-rich keys, enabling more accurate and hierarchical dependency tracking.
-- **Hierarchical Dependency Aggregation**: Implements hierarchical rollup and foreign dependency aggregation for the main tracker, providing a more comprehensive view of project dependencies.
-- **Enhanced Dependency Workflow**: A refined workflow simplifies dependency management.
-    - `show-keys` identifies keys needing attention ('p', 's', 'S') within a specific tracker.
-    - `show-dependencies` aggregates dependency details (inbound/outbound, paths) from *all* trackers for a specific key, eliminating manual tracker deciphering.
-    - `add-dependency` resolves placeholder ('p') or suggested ('s', 'S') relationships identified via this process. **Crucially, when targeting a mini-tracker (`*_module.md`), `add-dependency` now allows specifying a `--target-key` that doesn't exist locally, provided the target key is valid globally (known from `analyze-project`). The system automatically adds the foreign key definition and updates the grid, enabling manual linking to external dependencies.**
-      *   **Tip:** This is especially useful for manually linking relevant documentation files (e.g., requirements, design specs, API descriptions) to code files within a mini-tracker, even if the code file is incomplete or doesn't trigger an automatic suggestion. This provides the LLM with crucial context during code generation or modification tasks, guiding it towards the intended functionality described in the documentation (`doc_key < code_key`).
-   - **Dependency Visualization (`visualize-dependencies`)**: **(NEW in v7.8)**
-    - Generates Mermaid diagrams for project overview, module scope (internal + interface), or specific key focus.
-    - Auto-generates overview/module diagrams via `analyze-project`.
-- **Iterative Strategy Phase**: **(NEW in v7.8)**
-    - Plans the project roadmap iteratively, focusing on one area (module/feature) at a time.
-    - Explicitly integrates dependency analysis (textual + visual) into planning.
-- **Refined HDTA Templates**: **(NEW in v7.8)**
-    - Improved templates for Implementation Plans, Modules, and Tasks.
-    - New template for Roadmap Summaries.
-- **Configurable Embedding Device**: Allows users to configure the embedding device (`cpu`, `cuda`, `mps`) via `.clinerules.config.json` for optimized performance on different hardware. (Note: *the system does not yet install the requirements for cuda or mps automatically, please install the requirements manually or with the help of the LLM.*)
-- **File Exclusion Patterns**: Users can now define file exclusion patterns in `.clinerules.config.json` to customize project analysis.
-- **Caching and Batch Processing**: Significantly improves performance.
-- **Modular Dependency Tracking**:
-    - Utilizes main trackers (`module_relationship_tracker.md`, `doc_tracker.md`) and module-specific mini-trackers (`{module_name}_module.md`).
-    - Mini-tracker files also serve as the HDTA Domain Module documentation for their respective modules.
-    - Employs hierarchical keys and RLE compression for efficiency.
-- **Automated Operations**: System operations are now largely automated and condensed into single commands, streamlining workflows and reducing manual command execution.
-- **Phase-Based Workflow**: Operates in distinct phases: Set-up/Maintenance -> Strategy -> Execution -> Cleanup/Consolidation, controlled by `.clinerules`.
-- **Chain-of-Thought Reasoning**: Ensures transparency with step-by-step reasoning and reflection.
-- **Business Templates and Tools**: **(NEW)** Incorporates business-focused templates and tools from the BRCT fork:
-    - Business model canvas, idea generation/evaluation, SWOT analysis, and market research templates
-    - Business dependency tracking for mapping relationships between business factors
-    - Markdown to PDF conversion utility for creating professional documents
+- **Business-Focused Recursive Decomposition**: Breaks complex business problems into manageable components, organized via structured templates for systematic analysis.
+- **Comprehensive Business Templates**: Includes specialized templates for idea generation, evaluation, business model canvas, SWOT analysis, and market research.
+- **Minimal Context Loading**: Loads only essential business data, expanding via dependency trackers as needed.
+- **Persistent State**: Uses the VS Code file system to store context, ideas, evaluations, and business dependencies—maintained via the **Mandatory Update Protocol (MUP)**.
+- **Modular Dependency System (from CRCT v7.2)**: Inherits the fully modularized dependency tracking system from CRCT for enhanced efficiency and structure.
+- **Automated Operations (from CRCT v7.2)**: System operations are now largely automated and condensed into single commands, streamlining workflows.
+- **New `show-dependencies` command (from CRCT v7.2)**: Simplifies viewing dependencies without manually reading tracker files.
+- **Business-Specific Dependency Tracking**:
+  - `src/business_dependency_tracker.md` (tracks relationships between business factors)
+  - Custom dependency types for market, organizational, technological, financial, regulatory, competitive, and strategic dependencies (Needs review for integration with modular system)
+- **Phase-Based Workflow**: Operates in distinct phases—**Set-up/Maintenance**, **Strategy**, **Execution**—controlled by `.clinerules`.
+- **Business Chain-of-Thought Reasoning**: Ensures transparency with step-by-step reasoning and explicit documentation throughout the business innovation process.
+- **Markdown-to-PDF Conversion**: Utility command available in Strategy and Execution phases to convert Markdown files (e.g., reports, deliverables) into professionally styled PDFs using Pandoc and WeasyPrint.
 
 ---
 
@@ -65,126 +26,149 @@ Welcome to the **Cline Recursive Chain-of-Thought System (CRCT)**, a framework d
 
 1. **Clone the Repo**:
    ```bash
-   git clone https://github.com/RPG-fan/Cline-Recursive-Chain-of-Thought-System-CRCT-.git
-   cd Cline-Recursive-Chain-of-Thought-System-CRCT-
+   git clone https://github.com/leonardsellem/Business-Recursive-Chain-of-Thought-BRCT-.git
+   cd Business-Recursive-Chain-of-Thought-BRCT-
    ```
 
 2. **Install Dependencies**:
    ```bash
+   # Install Python dependencies
    pip install -r requirements.txt
+
+   # Install tools for PDF conversion (macOS with Homebrew)
+   # If not on macOS or not using Homebrew, install Pandoc and WeasyPrint manually
+   brew install pandoc weasyprint
    ```
 
 3. **Set Up Cline Extension**:
    - Open the project in VS Code with the Cline extension installed.
-   - Copy `cline_docs/prompts/core_prompt(put this in Custom Instructions).md` into the Cline Custom Instructions field.
+   - Copy the updated core prompt from `cline_docs/prompts/core_prompt(put this in Custom Instructions).md` into the Cline system prompt field (Note: This prompt file also has conflicts to resolve).
 
 4. **Start the System**:
    - Type `Start.` in the Cline input to initialize the system.
-   - The LLM will bootstrap from `.clinerules`, creating missing files and guiding you through setup if needed.
+   - The LLM will bootstrap from `.clinerules`, creating missing files and guiding you through setup.
+   - Begin documenting your business innovation process using the provided templates in `src/business_templates/`.
 
-*Note*: The Cline extension's LLM automates most commands and updates to `cline_docs/`. Minimal user intervention is required (in theory!).
+*Note*: The Cline extension's LLM automates most commands and updates to `cline_docs/`. Minimal user intervention is required.
 
 ---
 
 ## Project Structure
 
 ```
-Cline-Recursive-Chain-of-Thought-System-CRCT-/
-│   .clinerules
-│   .clinerules.config.json       # Configuration for dependency system
+Business-Recursive-Chain-of-Thought-BRCT-/
+│   .clinerules              # Controls phase and state
 │   .gitignore
-│   ATTRIBUTION.md                # Attribution for incorporated components
-│   INSTRUCTIONS.md
+│   INSTRUCTIONS.md          # (Needs update from upstream)
 │   LICENSE
-│   README.md
-│   requirements.txt
+│   README.md                # This file
+│   requirements.txt         # Python dependencies
 │
-├───cline_docs/                   # Operational memory
-│   │  activeContext.md           # Current state and priorities
-│   │  changelog.md               # Logs significant changes
-│   │  userProfile.md             # User profile and preferences
-│   │  progress.md                # High-level project checklist
-│   │
-│   ├──backups/                   # Backups of tracker files
-│   ├──dependency_diagrams/       # Default location for auto-generated Mermaid diagrams <NEW>
-│   ├──prompts/                   # System prompts and plugins
-│   │    core_prompt.md           # Core system instructions
-|   |    cleanup_consolidation_plugin.md <NEWer>
-│   │    execution_plugin.md
-│   │    setup_maintenance_plugin.md
-│   │    strategy_plugin.md         <REVISED>
-│   ├──templates/                 # Templates for HDTA documents
-│   │    hdta_review_progress_template.md <NEWer>
-│   │    hierarchical_task_checklist_template.md <NEWer>
-│   │    implementation_plan_template.md <REVISED>
-│   │    module_template.md         <Minor Update>
-│   │    roadmap_summary_template.md  <NEW>
-│   │    system_manifest_template.md
-│   │    task_template.md           <Minor Update>
+├───cline_docs/              # Operational memory
+│   │   activeContext.md     # Current state and priorities
+│   │   changelog.md         # Logs significant changes
+│   │   userProfile.md       # User profile and preferences (Adopted from upstream)
+│   │   projectbrief.md      # Mission and objectives (Kept from BRCT)
+│   │   # Other files like productContext, progress, projectPatterns, systemPatterns, techContext were deleted upstream, decide if needed for BRCT
+│   ├───backups/             # Backups of tracker files (Adopted from upstream)
+│   └───prompts/             # System prompts and plugins
+│       │ core_prompt.md     # Core system instructions (Needs merge)
+│       │ execution_plugin.md # (Needs merge)
+│       │ setup_maintenance_plugin.md # (Needs merge)
+│       │ strategy_plugin.md # (Needs merge)
+│   # Upstream has cline_docs/templates/ - Decide if BRCT needs these
 │
-├───cline_utils/                  # Utility scripts
-│   │  file_converter.py          # Markdown to PDF conversion utility <NEW>
-│   ├──assets/                    # Assets for utilities <NEW>
-│   │    professional_style.css   # CSS for PDF styling <NEW>
+├───cline_utils/             # Utility scripts (Adopted CRCT v7.2 structure)
+│   │ __init__.py
 │   └─dependency_system/
-│     │ dependency_processor.py   # Dependency management script <REVISED>
-│     ├──analysis/                # Analysis modules <REVISED project_analyzer.py>
-│     ├──core/                    # Core modules <REVISED key_manager.py>
-│     ├──io/                      # IO modules
-│     └──utils/                   # Utility modules <REVISED config_manager.py>, <NEW visualize_dependencies.py>
+│     │ __init__.py
+│     │ dependency_processor.py # Core dependency script (Adopted from upstream)
+│     ├──analysis/            # Analysis modules (Adopted from upstream)
+│     │  └── __init__.py
+│     ├──cli/                 # CLI modules (Adopted from upstream)
+│     │  └── __init__.py
+│     ├──config/              # Config modules (Adopted from upstream)
+│     │  └── __init__.py
+│     ├──core/                # Core modules (Adopted from upstream)
+│     │  └── __init__.py
+│     ├──io/                  # IO modules (Adopted from upstream)
+│     │  └── __init__.py
+│     └──utils/               # Utility modules (Adopted from upstream)
+│        └── __init__.py
 │
-├───docs/                         # Project documentation
-└───src/                          # Source code root
-    ├──business_templates/        # Business innovation templates <NEW>
-    │    README.md                # Overview of business templates <NEW>
-    │    business_model_canvas.md # Enhanced BMC with recursive analysis <NEW>
-    │    idea_evaluation_template.md # Framework for evaluating ideas <NEW>
-    │    idea_generation_template.md # Structured approach to ideation <NEW>
-    │    market_research_template.md # Market analysis framework <NEW>
-    │    swot_analysis_template.md # Enhanced SWOT with decomposition <NEW>
-    └──business_dependency_tracker.md # Business factor dependency tracking <NEW>
+├───docs/                    # Project documentation
+│    └── .gitkeep
+│
+├───src/                     # Source code and BRCT specifics
+│   │ .gitkeep
+│   ├───business_templates/  # Business innovation templates (Kept from BRCT)
+│   │   │ README.md
+│   │   │ business_model_canvas.md
+│   │   │ idea_evaluation_template.md
+│   │   │ idea_generation_template.md
+│   │   │ market_research_template.md
+│   │   │ swot_analysis_template.md
+│   └───business_dependency_tracker.md # Business factor dependency tracking (Kept from BRCT, needs review)
+│
+└───strategy_tasks/          # Strategic plans (Kept from BRCT)
+     └── .gitkeep
 ```
-*(Added/Updated relevant files/dirs)*
+
+---
+
+## Business Templates
+
+The BRCT framework includes specialized templates for various aspects of the business innovation process:
+
+- **Idea Generation Template**: Structured approach to generating business ideas with recursive decomposition
+- **Idea Evaluation Template**: Framework for evaluating ideas based on feasibility, viability, and desirability
+- **Business Model Canvas**: Enhanced canvas with recursive analysis and dependency tracking
+- **SWOT Analysis Template**: Comprehensive SWOT analysis with component-level breakdown
+- **Market Research Template**: Structured approach to market analysis with recursive decomposition
+
+Each template incorporates chain-of-thought documentation sections to ensure transparency in reasoning and decision-making.
+
+---
+
+## Business Dependency Tracking
+
+The BRCT framework extends CRCT's dependency tracking system with business-specific dependency types:
+
+- Market Dependencies (M): Relationships with market conditions and customer factors
+- Organizational Dependencies (O): Relationships with internal capabilities and resources
+- Technological Dependencies (T): Relationships with technological capabilities and trends
+- Financial Dependencies (F): Relationships with funding, investment, and financial metrics
+- Regulatory Dependencies (R): Relationships with legal and compliance factors
+- Competitive Dependencies (C): Relationships with competitor actions and positioning
+- Strategic Dependencies (S): Relationships with strategic decisions and direction
+
+These dependency types are used in the `src/business_dependency_tracker.md` to document relationships between business factors. *Note: The integration of these types with the new modular dependency system needs further review and potential adaptation.*
 
 ---
 
 ## Current Status & Future Plans
 
-- **v7.8**: Focus on **visual comprehension and planning robustness**. Introduced Mermaid dependency diagrams (`visualize-dependencies`, auto-generation via `analyze-project`). Overhauled the Strategy phase (`strategy_plugin.md`) for iterative, area-based roadmap planning, explicitly using visualizations. Refined HDTA templates, including a new `roadmap_summary_template.md`.
-- **v7.7**: Introduced `cleanup_consolidation` phase, added planning/review tracker templates.
-- **v7.5**: Foundational restructure: Contextual Keys, Hierarchical Aggregation, `show-dependencies`, configuration enhancements, performance improvements (cache/batch).
-
-**Future Focus**: Continue refining performance, usability, and robustness. Areas include improving error handling in file operations (Cleanup), and further optimizing LLM interaction within each phase based on usage patterns. The remainder of the v7.x series will mainly be improving how embeddings, analysis, and similarity suggestions are handled. These releases might come a bit slower than previous areas due to the amount of research and testing needed to genuinely improve upon the current analysis/suggestion system.
-- *tentative* v8.x will be focused on transition to MCP based tool use, with later stages planned to move from filesystem storage/operations to database focused operation.
+- **v1.1.1**: Added Markdown-to-PDF conversion utility using Pandoc/WeasyPrint.
+- **v1.1**: Merged with CRCT v7.2, incorporating its modular dependency system, automated operations, and other enhancements.
+- **Next Steps**: Resolve remaining merge conflicts, adapt business dependency tracking to the new modular system, update documentation (`INSTRUCTIONS.md`, prompts), and test the integrated framework.
+- **Future Enhancements**: Planning to add more specialized templates, enhanced visualization for business dependencies, and integration with business intelligence tools.
 
 Feedback is welcome! Please report bugs or suggestions via GitHub Issues.
 
 ---
 
-## Getting Started (Optional - Existing Projects)
+## Getting Started with Your Business Innovation Project
 
-To test on an existing project:
-1. Copy your project into `src/`.
-2. Use these prompts to kickstart the LLM:
-   - `Perform initial setup and populate dependency trackers.`
-   - `Review the current state and suggest next steps.`
+To start using BRCT for your business innovation project:
+1. Initialize the framework by typing `Start.` in Cline.
+2. Define your project brief, user profile, and initial active context.
+3. Use the business templates in the `src/business_templates/` directory to document your innovation process.
+4. Track business dependencies using `src/business_dependency_tracker.md` (pending adaptation to the new system).
 
-The system will analyze your codebase, initialize trackers, and guide you forward.
-
----
-
-## Business Features
-
-This repository incorporates business-focused templates and tools from the Business Recursive Chain-of-Thought Framework (BRCT). These features enable structured approaches to business innovation processes, including idea generation, evaluation, business modeling, and strategic analysis.
-
-See the `src/business_templates/` directory for available templates and `ATTRIBUTION.md` for details on incorporated components.
+The system will guide you through the process, helping you decompose complex business problems and maintain clear documentation of your reasoning and decisions.
 
 ---
 
-## Thanks!
+## Acknowledgments
 
-A big Thanks to https://github.com/biaomingzhong for providing detailed instructions that were integrated into the core prompt and plugins! (PR #25)
-
-Thanks to https://github.com/leonardsellem for the Business Recursive Chain-of-Thought Framework (BRCT) components that have been incorporated into this repository.
-
-This is a labor of love to make Cline projects more manageable. I'd love to hear your thoughts—try it out and let me know what works (or doesn't)!
+The Business Recursive Chain-of-Thought Framework is built upon the excellent Cline Recursive Chain-of-Thought System (CRCT) created by [RPG-fan](https://github.com/RPG-fan) and available at [https://github.com/RPG-fan/Cline-Recursive-Chain-of-Thought-System-CRCT-](https://github.com/RPG-fan/Cline-Recursive-Chain-of-Thought-System-CRCT-). We extend our sincere thanks to RPG-fan for developing such a robust foundation (v7.2) that made this business adaptation possible.
