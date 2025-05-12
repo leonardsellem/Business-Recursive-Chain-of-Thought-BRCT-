@@ -1,6 +1,7 @@
 <!--
 Instructions:  Fill in the placeholders below to create the System Manifest.
 This document provides a high-level overview of the entire system.
+*Do NOT include these comments in the created file.*
 -->
 
 # System: {SystemName}
@@ -12,7 +13,7 @@ This document provides a high-level overview of the entire system.
 {ASCII diagram of system Modules}
 
 ## Module Registry
-- [{module_dir}/{module_dir1}]: {brief description}
+- [{ModuleName1} (`{path/to/ModuleName1_module.md}`)]: {brief description}
 - [{module_dir}/{module_dir2}]: {brief description}
 ...
 
@@ -46,7 +47,7 @@ Tracks product inventory, orders, and shipments for e-commerce platform.
   +-- [Customer UI]
 
 ## Module Registry
-- [src/frontend]: User interfaces
+- [frontend (`src/frontend/frontend_module.md`)]: User interfaces
 - [src/frontend/api_gateway]: Request routing
 - [src/frontend/api_gateway/services]: Business logic
 - [src/frontend/api_gateway/services/database]: Data storage

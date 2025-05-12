@@ -2,7 +2,7 @@
   "paths": {
     "code_root_dirs": ["../src"],
     "doc_dir": "../docs",
-    "memory_dir": "cline_docs"
+    "memory_dir": "../cline_docs"
   },
   "models": {
     "doc_model_name": "all-mpnet-base-v2",
