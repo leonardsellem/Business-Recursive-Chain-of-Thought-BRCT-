@@ -6,9 +6,7 @@ import json
 import os
 from typing import Any, Dict, Optional, List, Tuple
 from cline_utils.dependency_system.core.dependency_grid import decompress
-# <<< MODIFIED IMPORT: Import tracker_io module >>>
 from cline_utils.dependency_system.io import tracker_io
-# <<< MODIFIED IMPORT: Import key_manager module >>>
 from cline_utils.dependency_system.core import key_manager
 import uuid
 import logging
@@ -16,11 +14,11 @@ from cline_utils.dependency_system.analysis.dependency_analyzer import analyze_f
 from cline_utils.dependency_system.utils.batch_processor import BatchProcessor, process_items
 from cline_utils.dependency_system.analysis.dependency_suggester import suggest_dependencies
 from cline_utils.dependency_system.analysis.embedding_manager import generate_embeddings
-# Remove direct import of generate_keys, KeyInfo etc. Use key_manager.generate_keys etc.
-# from cline_utils.dependency_system.core.key_manager import get_key_from_path, generate_keys, validate_key, KeyInfo, KeyGenerationError, sort_keys
 from cline_utils.dependency_system.utils.cache_manager import cached, file_modified, clear_all_caches
 from cline_utils.dependency_system.utils.config_manager import ConfigManager
 from cline_utils.dependency_system.utils.path_utils import is_subpath, normalize_path, get_project_root
+from cline_utils.dependency_system.utils.template_generator import generate_final_review_checklist
+from cline_utils.dependency_system.utils.visualize_dependencies import generate_mermaid_diagram
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +29,9 @@ logger = logging.getLogger(__name__)
 def analyze_project(force_analysis: bool = False, force_embeddings: bool = False) -> Dict[str, Any]:
     """
     Analyzes all files in a project to identify dependencies between them,
-    initialize trackers, and suggest dependencies using the new contextual key system.
+    initialize trackers, suggest dependencies using the new contextual key system,
+    and generate relevant project templates like the final review checklist.
+    Also auto-generates dependency diagrams if enabled.
 
     Args:
         force_analysis: Bypass cache and force reanalysis of files
@@ -46,49 +46,22 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
 
     analyzer_batch_processor = BatchProcessor()
     # Clear relevant caches if forcing re-analysis
-    if force_analysis:
-        logger.info("Force analysis requested. Clearing all caches.")
-        clear_all_caches()
-
-    results = { # Initialize results dict
-        "status": "success", "message": "", "tracker_initialization": {},
-        "embedding_generation": {}, "dependency_suggestion": {},
-        "tracker_update": {}, "file_analysis": {}
-    }
-
-    # --- Exclusion Setup ---
-    excluded_dirs_rel = config.get_excluded_dirs()
-    excluded_paths_rel = config.get_excluded_paths()
-    excluded_extensions = set(config.get_excluded_extensions())
-    excluded_file_patterns = config.config.get("excluded_file_patterns", [])
-    excluded_dirs_abs = {normalize_path(os.path.join(project_root, p)) for p in excluded_dirs_rel}
-    excluded_paths_abs = {normalize_path(os.path.join(project_root, p)) for p in excluded_paths_rel}
-    all_excluded_paths_abs = excluded_dirs_abs.union(excluded_paths_abs)
+    if force_analysis: logger.info("Force analysis requested. Clearing all caches."); clear_all_caches()
+    results = { "status": "success", "message": "", "tracker_initialization": {}, "embedding_generation": {}, "dependency_suggestion": {}, "tracker_update": {}, "file_analysis": {}, "template_generation": {}, "auto_visualization": {} } # Add viz section
+    excluded_dirs_rel = config.get_excluded_dirs(); excluded_paths_rel = config.get_excluded_paths(); excluded_extensions = set(config.get_excluded_extensions()); excluded_file_patterns_config = config.config.get("excluded_file_patterns", [])
+    excluded_dirs_abs_set = {normalize_path(os.path.join(project_root, p)) for p in excluded_dirs_rel}; all_excluded_paths_abs_set = set(excluded_paths_rel).union(excluded_dirs_abs_set)
     norm_project_root = normalize_path(project_root)
-    if any(norm_project_root == excluded_path or norm_project_root.startswith(excluded_path + os.sep) for excluded_path in all_excluded_paths_abs):
+    # Check if norm_project_root itself is excluded by checking if it starts with or equals any excluded path
+    if any(norm_project_root == excluded_path or norm_project_root.startswith(excluded_path + os.sep) 
+           for excluded_path in all_excluded_paths_abs_set):
         logger.info(f"Skipping analysis of excluded project root: {project_root}"); results["status"] = "skipped"; results["message"] = "Project root is excluded"; return results
 
     # --- Root Directories Setup ---
     code_root_directories_rel = config.get_code_root_directories()
     doc_directories_rel = config.get_doc_directories()
-    # Combine unique roots
-    all_roots_rel = list(set(code_root_directories_rel + doc_directories_rel)) # Use set for uniqueness
+    all_roots_rel = sorted(list(set(code_root_directories_rel + doc_directories_rel)))
+    abs_code_roots = {normalize_path(os.path.join(project_root, r)) for r in code_root_directories_rel}; abs_doc_roots = {normalize_path(os.path.join(project_root, r)) for r in doc_directories_rel}; abs_all_roots = {normalize_path(os.path.join(project_root, r)) for r in all_roots_rel}
 
-    # Sort the relative root paths alphabetically to ensure stable order
-    all_roots_rel.sort()
-    logger.debug(f"Processing root directories in stable order: {all_roots_rel}")
-
-    if not code_root_directories_rel:
-        logger.error("No code root directories configured.")
-        results["status"] = "error"; results["message"] = "No code root directories configured."; return results
-    if not doc_directories_rel:
-        logger.warning("No documentation directories configured. Proceeding without doc analysis.")
-
-    abs_code_roots = {normalize_path(os.path.join(project_root, r)) for r in code_root_directories_rel}
-    abs_doc_roots = {normalize_path(os.path.join(project_root, r)) for r in doc_directories_rel}
-    abs_all_roots = {normalize_path(os.path.join(project_root, r)) for r in all_roots_rel}
-
-    # <<< START NEW LOGIC: Check for pre-existing _old.json >>>
     old_map_existed_before_gen = False
     try:
         # Determine the expected path for the old map file RELATIVE to key_manager.py
@@ -102,13 +75,12 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
             logger.info(f"'{key_manager.OLD_GLOBAL_KEY_MAP_FILENAME}' not found before key generation. Grid migration will use tracker definitions as fallback.")
     except Exception as path_err:
         logger.error(f"Error determining path or checking existence of old key map file: {path_err}. Assuming it didn't exist.")
-        old_map_existed_before_gen = False # Default to false on error
-    # <<< END NEW LOGIC >>>
+        old_map_existed_before_gen = False
 
     # --- Key Generation ---
     logger.info("Generating/Regenerating keys...")
-    path_to_key_info: Dict[str, key_manager.KeyInfo] = {} # Use qualified type
-    newly_generated_keys: List[key_manager.KeyInfo] = [] # Use qualified type
+    path_to_key_info: Dict[str, key_manager.KeyInfo] = {}
+    newly_generated_keys: List[key_manager.KeyInfo] = []
 
     try:
         # Call generate_keys using the module reference
@@ -116,36 +88,20 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
             all_roots_rel,
             excluded_dirs=excluded_dirs_rel,
             excluded_extensions=excluded_extensions,
-            precomputed_excluded_paths=all_excluded_paths_abs
+            precomputed_excluded_paths=all_excluded_paths_abs_set # Pass the combined set
         )
         results["tracker_initialization"]["key_generation"] = "success"
         logger.info(f"Generated {len(path_to_key_info)} keys for {len(path_to_key_info)} files/dirs.")
         if newly_generated_keys: logger.info(f"Assigned {len(newly_generated_keys)} new keys.")
-    except key_manager.KeyGenerationError as kge: # Use qualified type
+    except key_manager.KeyGenerationError as kge:
         results["status"] = "error"; results["message"] = f"Key generation failed: {kge}"; logger.critical(results["message"]); return results
     except Exception as e:
         results["status"] = "error"; results["message"] = f"Key generation failed unexpectedly: {e}"; logger.exception(results["message"]); return results
-
-    # --- Create file_to_module mapping (Adapted for path_to_key_info) ---
-    # Maps normalized absolute file path -> normalized absolute parent directory path (module path)
-    logger.info("Creating file-to-module mapping...")
-    file_to_module: Dict[str, str] = {}
-    for key_info in path_to_key_info.values():
-        if not key_info.is_directory:
-            if key_info.parent_path:
-                file_path = key_info.norm_path
-                module_path = key_info.parent_path
-                file_to_module[file_path] = module_path
-            else:
-                logger.warning(f"File '{key_info.norm_path}' (Key: {key_info.key_string}) has no parent path. Cannot map to a module.")
-    logger.info(f"File-to-module mapping created with {len(file_to_module)} entries.")
 
     # --- File Identification and Filtering ---
     config_manager_instance = ConfigManager()
     logger.info("Identifying files for analysis...")
     files_to_analyze_abs = []
-    # Get excluded_file_patterns from config
-    excluded_file_patterns = config_manager_instance.config.get("excluded_file_patterns", [])
 
     # Use abs_all_roots for finding files, order doesn't strictly matter here
     for abs_root_dir in abs_all_roots:
@@ -159,35 +115,33 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
             # Directory filtering
             dirs[:] = [
                 d for d in dirs 
-                if d not in excluded_dirs_rel
-                and normalize_path(os.path.join(norm_root, d)) not in all_excluded_paths_abs
+                if d not in excluded_dirs_rel # Check against simple dir names
+                and normalize_path(os.path.join(norm_root, d)) not in all_excluded_paths_abs_set # Check against resolved abs paths
             ]
 
             # Check if the current directory itself is excluded by path/pattern
             is_root_excluded_by_path = False
-            # Check against the comprehensive exclusion set
-            if norm_root in all_excluded_paths_abs or \
-               any(is_subpath(norm_root, excluded) for excluded in all_excluded_paths_abs):
+            if norm_root in all_excluded_paths_abs_set or \
+               any(is_subpath(norm_root, excluded) for excluded in all_excluded_paths_abs_set):
                  is_root_excluded_by_path = True
 
             if is_root_excluded_by_path:
                 logger.debug(f"Skipping files in excluded directory: {norm_root}")
-                dirs[:] = [] # Prevent recursion into excluded directories
+                dirs[:] = [] 
                 continue
 
-            # Process files in the current directory
-            for file in files:
-                file_path_abs = normalize_path(os.path.join(norm_root, file))
-                file_basename = os.path.basename(file_path_abs)
-                _, file_ext = os.path.splitext(file)
+            for file_name in files: # Renamed 'file' to 'file_name' to avoid conflict
+                file_path_abs = normalize_path(os.path.join(norm_root, file_name))
+                file_basename = os.path.basename(file_path_abs) # Use file_name directly
+                _, file_ext = os.path.splitext(file_name)
                 file_ext = file_ext.lower()
 
                 # Check all exclusion criteria
                 is_excluded = (
-                    file_path_abs in all_excluded_paths_abs
-                    or any(is_subpath(file_path_abs, excluded) for excluded in all_excluded_paths_abs)
+                    file_path_abs in all_excluded_paths_abs_set
+                    or any(is_subpath(file_path_abs, excluded) for excluded in all_excluded_paths_abs_set)
                     or file_ext in excluded_extensions
-                    or any(fnmatch.fnmatch(file_basename, pattern) for pattern in excluded_file_patterns)
+                    or any(fnmatch.fnmatch(file_basename, pattern) for pattern in excluded_file_patterns_config)
                 )
 
                 if is_excluded:
@@ -221,32 +175,23 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
     results["file_analysis"] = file_analysis_results
     logger.info(f"File analysis complete. Analyzed: {analyzed_count}, Skipped: {skipped_count}, Errors: {error_count}")
 
-        # --- Create file_to_module mapping (Adapted for path_to_key_info) ---
+    # --- Create file_to_module mapping (Adapted for path_to_key_info) ---
     # Maps normalized absolute file path -> normalized absolute parent directory path (module path)
-
-    # Input: path_to_key_info: Dict[str, KeyInfo] from key_manager.generate_keys()
-    # Output: file_to_module: Dict[str, str]
-
+    logger.info("Creating file-to-module mapping...")
     file_to_module: Dict[str, str] = {}
-
-    # Iterate through all the generated key information
-    for key_info in path_to_key_info.values():
+    # Iterate through all the generated key information from path_to_key_info
+    for key_info_obj in path_to_key_info.values(): # Iterate over KeyInfo objects
         # We only care about mapping files
-        if not key_info.is_directory:
-            # Ensure the file has a parent path recorded (should always be true for non-root files)
-            if key_info.parent_path:
-                # The file's path is key_info.norm_path
-                # The module's path (containing directory) is key_info.parent_path
-                file_path = key_info.norm_path
-                module_path = key_info.parent_path # Direct parent directory path
-
-                # Add the mapping
+        if not key_info_obj.is_directory:
+            # Ensure the file has a parent path recorded
+            if key_info_obj.parent_path:
+                file_path = key_info_obj.norm_path
+                module_path = key_info_obj.parent_path # Direct parent directory path
                 file_to_module[file_path] = module_path
-                # logger.debug(f"Mapped file '{file_path}' to module '{module_path}'") # Optional debug log
-            else:
-                # This case should be rare (files directly in filesystem root?), log if encountered.
-                logger.warning(f"File '{key_info.norm_path}' has no parent path in KeyInfo. Cannot map to a module.")
+                logger.debug(f"Mapped file '{file_path}' to module '{module_path}'") # Optional debug log
 
+            else:
+                logger.warning(f"File '{key_info_obj.norm_path}' (Key: {key_info_obj.key_string}) has no parent path in KeyInfo. Cannot map to a module.")
     logger.info(f"File-to-module mapping created with {len(file_to_module)} entries.")
 
     # --- Embedding generation ---
@@ -277,6 +222,8 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
         suggestion_count = 0
         # Use list of keys corresponding to analyzed files
         analyzed_file_paths = list(file_analysis_results.keys())
+        # Use configured threshold for doc_similarity
+        doc_similarity_threshold = config.get_threshold("doc_similarity") 
         for file_path_abs in analyzed_file_paths:
             file_key_info = path_to_key_info.get(file_path_abs)
             if not file_key_info:
@@ -290,14 +237,13 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
                 path_to_key_info, # Pass the main map
                 project_root,
                 file_analysis_results, # Pass the collected analysis results
-                threshold=0.65 # This threshold is primarily for semantic fallback
+                threshold=doc_similarity_threshold
             )
 
             if suggestions_for_file:
                 # Suggestions are returned as (target_key_string, dep_char)
                 all_suggestions[file_key_string].extend(suggestions_for_file)
                 suggestion_count += len(suggestions_for_file)
-
         logger.info(f"Generated {suggestion_count} raw suggestions from file analysis.")
 
         # --- Combine suggestions within each source key using priority ---
@@ -309,66 +255,6 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
         for source_key, suggestion_list in all_suggestions.items():
              combined_suggestions_per_source[source_key] = _combine_suggestions_with_char_priority(suggestion_list)
         all_suggestions = combined_suggestions_per_source # Replace raw with combined
-
-        # # --- Add reciprocal '<'/'x' dependencies ---
-        # logger.debug("Adding/Merging reciprocal dependencies ('<' or 'x')...")
-        # get_priority = config.get_char_priority
-        # keys_with_suggestions = list(all_suggestions.keys()) # Key strings
-        # 
-        # for source_key in keys_with_suggestions:
-        #     # Use list() to avoid modifying dict during iteration if suggestion list changes
-        #     current_source_suggestions = list(all_suggestions.get(source_key, []))
-        # 
-        #     for target_key, dep_char in current_source_suggestions:
-        #          # <<< *** MODIFIED CHECK *** >>>
-        #          # Check if target_key corresponds to a valid path in the map
-        #          # This requires finding *a* path for the target key, which is ambiguous.
-        #          # Assumption: suggest_dependencies returned valid target_key strings that exist in the map.
-        #          # We need a way to confirm target_key represents a valid entity without needing its path here.
-        #          # Let's rely on the suggestion function having done its job for now.
-        #          # The check `target_key == source_key` is still valid.
-        #          if target_key == source_key:
-        #                continue
-        # 
-        #          target_suggestions = all_suggestions.setdefault(target_key, [])
-        #          # Use a map for quick lookup of existing char from target back to source
-        #          target_suggestion_map = {t: c for t, c in target_suggestions}
-        #          existing_char_in_target = target_suggestion_map.get(source_key)
-        #          existing_priority = get_priority(existing_char_in_target) if existing_char_in_target else -1
-        # 
-        #          reciprocal_char = None
-        #          reciprocal_priority = -1
-        # 
-        #          if dep_char == '>':
-        #               reciprocal_char = '<'
-        #               reciprocal_priority = get_priority('<')
-        #          elif dep_char == '<':
-        #               reciprocal_char = '>'
-        #               reciprocal_priority = get_priority('>')
-        #          # Add other reciprocal pairs if needed (e.g., 'd'?)
-        # 
-        #          if reciprocal_char:
-        #              if reciprocal_priority > existing_priority:
-        #                   # Remove existing lower priority char if present
-        #                   target_suggestions[:] = [(t, c) for t, c in target_suggestions if t != source_key]
-        #                   # Add the new reciprocal dependency
-        #                   logger.debug(f"Reciprocal: Adding {target_key} -> {source_key} ('{reciprocal_char}') based on {source_key}->{target_key} ('{dep_char}')")
-        #                   target_suggestions.append((source_key, reciprocal_char))
-        #              # MERGE to 'x' if mutual dependency (A->B='<' AND B->A='<') is found
-        #              elif dep_char == '<' and existing_char_in_target == '<': # Check for matching '<' in both directions
-        #                   if existing_char_in_target != 'x': # Avoid re-merging 'x'
-        #                        # Update target -> source (B -> A) to 'x'
-        #                        target_suggestions[:] = [(t, 'x' if t == source_key else c) for t, c in target_suggestions]
-        #                        logger.debug(f"Mutual: Merging {target_key} -> {source_key} to 'x' due to matching '<' dependencies.") # Updated log
-        # 
-        #                        # Also update the original source -> target (A -> B) to 'x'
-        #                        current_source_suggestions_for_update = all_suggestions.get(source_key, []) # Refetch
-        #                        if current_source_suggestions_for_update: # Check if list exists before modifying
-        #                           current_source_suggestions_for_update[:] = [(orig_t, 'x' if orig_t == target_key else orig_c) for orig_t, orig_c in current_source_suggestions_for_update]
-        #                           logger.debug(f"Mutual: Merging {source_key} -> {target_key} to 'x' due to matching '<' dependencies.") # Updated log
-        # 
-        #                   # else: Keep existing for other equal priority conflicts
-
         results["dependency_suggestion"]["status"] = "success"
         logger.info("Dependency suggestion combining completed.")
     except Exception as e:
@@ -382,18 +268,17 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
 
     potential_mini_tracker_dirs: Dict[str, key_manager.KeyInfo] = {}
     for code_root_abs in abs_code_roots:
-        for path, key_info in path_to_key_info.items():
-            if key_info.is_directory and key_info.parent_path == code_root_abs:
-               potential_mini_tracker_dirs[path] = key_info
-               # Also consider the code root itself if it contains files directly
-            elif key_info.is_directory and path == code_root_abs:
-                 potential_mini_tracker_dirs[path] = key_info
+        for path, key_info_obj in path_to_key_info.items(): # Iterate over KeyInfo objects
+            if key_info_obj.is_directory and key_info_obj.parent_path == code_root_abs:
+               potential_mini_tracker_dirs[path] = key_info_obj
+            elif key_info_obj.is_directory and path == code_root_abs:
+                 potential_mini_tracker_dirs[path] = key_info_obj
 
     logger.info(f"Identified {len(potential_mini_tracker_dirs)} potential directories for mini-trackers.")
 
     # Iterate through the identified module paths
-    for norm_module_path, module_key_info in potential_mini_tracker_dirs.items():
-        module_key_string = module_key_info.key_string # Get key string for logging if needed
+    for norm_module_path, module_key_info_obj in potential_mini_tracker_dirs.items(): # Iterate over KeyInfo objects
+        module_key_string = module_key_info_obj.key_string # Get key string for logging if needed
         # Check if directory is NOT empty before trying to update/create tracker
         if os.path.isdir(norm_module_path) and not _is_empty_dir(norm_module_path):
             if norm_module_path in mini_tracker_paths_updated: continue # Skip if already processed
@@ -426,7 +311,7 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
         try:
             tracker_io.update_tracker(
                 output_file_suggestion=doc_tracker_path,
-                path_to_key_info=path_to_key_info, # Pass the main map
+                path_to_key_info=path_to_key_info,
                 tracker_type="doc",
                 suggestions=all_suggestions,
                 file_to_module=file_to_module,
@@ -460,14 +345,126 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
         logger.error(f"Error updating main tracker {main_tracker_path}: {main_err}", exc_info=True)
         results["tracker_update"]["main"] = "failure"; results["status"] = "warning"
 
-    except Exception as e:
-        results["status"] = "error" # Critical error during suggestions/updates
-        results["message"] = f"Dependency suggestion or tracker update failed critically: {e}"
-        logger.exception(results["message"]); return results
+
+    # --- Template Generation (e.g., Final Review Checklist) ---
+    # This should be one of the last steps, after all analysis and tracker updates.
+    logger.info("Starting template generation (e.g., final review checklist)...")
+    try:
+        checklist_generated_successfully = generate_final_review_checklist()
+        if checklist_generated_successfully:
+            results["template_generation"]["final_review_checklist"] = "success"
+            logger.info("Final review checklist generated successfully.")
+        else:
+            results["template_generation"]["final_review_checklist"] = "failure"
+            logger.warning("Final review checklist generation failed. Check logs for details.")
+            # Optionally, change overall status to warning if checklist fails
+            if results["status"] == "success":
+                 results["status"] = "warning"
+                 results["message"] += " Warning: Failed to generate final review checklist."
+
+    except Exception as template_err:
+        results["template_generation"]["final_review_checklist"] = "error"
+        logger.error(f"Critical error during template generation: {template_err}", exc_info=True)
+        if results["status"] == "success":
+             results["status"] = "warning" # Or "error" if this is critical
+        results["message"] += f" Critical error during template generation: {template_err}."
+
+    # --- Auto Diagram Generation (if enabled) --- <<< NEW SECTION >>>
+    # Use a default value for get() in case 'visualization' section is missing entirely
+    auto_generate_enabled = config.config.get("visualization", {}).get("auto_generate_on_analyze", True)
+
+    if auto_generate_enabled:
+        logger.info("Starting automatic diagram generation...")
+        results["auto_visualization"] = {"overview": "skipped", "modules": {}} # Initialize status
+
+        # Determine output directory
+        memory_dir_rel_analyzer = config.get_path('memory_dir', 'cline_docs')
+        default_diagram_subdir = "dependency_diagrams"
+        default_auto_diagram_dir_abs = normalize_path(os.path.join(project_root, memory_dir_rel_analyzer, default_diagram_subdir))
+        auto_diagram_output_dir_config_rel = config.config.get("visualization", {}).get("auto_diagram_output_dir") # Check if user set a path
+
+        if auto_diagram_output_dir_config_rel:
+            auto_diagram_output_dir_abs = normalize_path(os.path.join(project_root, auto_diagram_output_dir_config_rel))
+            logger.info(f"Using configured auto diagram output directory: {auto_diagram_output_dir_abs}")
+        else:
+            auto_diagram_output_dir_abs = default_auto_diagram_dir_abs
+            logger.info(f"Using default auto diagram output directory: {auto_diagram_output_dir_abs}")
+
+        try:
+            if not os.path.exists(auto_diagram_output_dir_abs):
+                os.makedirs(auto_diagram_output_dir_abs, exist_ok=True)
+
+            # Find all tracker paths *again* here, as they might have just been created/updated
+            current_tracker_paths = tracker_io.find_all_tracker_paths(config, project_root)
+
+            # --- Generate Project Overview Diagram ---
+            logger.info("Generating project overview diagram...")
+            overview_filename = "project_overview_dependencies.mermaid"
+            overview_path = os.path.join(auto_diagram_output_dir_abs, overview_filename)
+
+            overview_mermaid_code = generate_mermaid_diagram(
+                focus_keys_list=[], # Empty list for overview
+                global_path_to_key_info_map=path_to_key_info,
+                all_tracker_paths_list=list(current_tracker_paths),
+                config_manager_instance=config
+            )
+            if overview_mermaid_code and "// No relevant data" not in overview_mermaid_code and "Error:" not in overview_mermaid_code[:20]:
+                with open(overview_path, 'w', encoding='utf-8') as f: f.write(overview_mermaid_code)
+                logger.info(f"Project overview diagram saved to {overview_path}")
+                results["auto_visualization"]["overview"] = "success"
+            else:
+                logger.warning(f"Skipping save for project overview diagram (no data or failed generation).")
+                results["auto_visualization"]["overview"] = "nodata_or_failed"
+
+            # --- Generate Per-Module Diagrams ---
+            module_keys_to_visualize = []
+            # Logic to find module keys (e.g., top-level dirs under code roots)
+            for key_info_obj_analyzer in path_to_key_info.values():
+                if key_info_obj_analyzer.is_directory:
+                    is_top_level_module_dir_analyzer = False
+                    for acr_path_analyzer in abs_code_roots: # abs_code_roots defined earlier
+                        if key_info_obj_analyzer.norm_path == acr_path_analyzer: is_top_level_module_dir_analyzer = True; break
+                        if key_info_obj_analyzer.parent_path == acr_path_analyzer: is_top_level_module_dir_analyzer = True; break
+                    if is_top_level_module_dir_analyzer:
+                         module_keys_to_visualize.append(key_info_obj_analyzer.key_string)
+
+            module_keys_unique = sorted(list(set(module_keys_to_visualize)))
+            logger.info(f"Identified module keys for auto-visualization: {module_keys_unique}")
+            results["auto_visualization"]["modules"] = {mk: "skipped" for mk in module_keys_unique} # Initialize module status
+
+            for module_key_str in module_keys_unique:
+                logger.info(f"Generating diagram for module: {module_key_str}...")
+                module_diagram_filename = f"module_{module_key_str}_dependencies.mermaid".replace("/", "_").replace("\\", "_")
+                module_diagram_path = os.path.join(auto_diagram_output_dir_abs, module_diagram_filename)
+
+                module_mermaid_code = generate_mermaid_diagram(
+                    focus_keys_list=[module_key_str],
+                    global_path_to_key_info_map=path_to_key_info,
+                    all_tracker_paths_list=list(current_tracker_paths),
+                    config_manager_instance=config
+                )
+                if module_mermaid_code and "// No relevant data" not in module_mermaid_code and "Error:" not in module_mermaid_code[:20]:
+                    with open(module_diagram_path, 'w', encoding='utf-8') as f: f.write(module_mermaid_code)
+                    logger.info(f"Module {module_key_str} diagram saved to {module_diagram_path}")
+                    results["auto_visualization"]["modules"][module_key_str] = "success"
+                else:
+                    logger.warning(f"Skipping save for module {module_key_str} diagram (no data or failed generation).")
+                    results["auto_visualization"]["modules"][module_key_str] = "nodata_or_failed"
+
+        except Exception as viz_err:
+            logger.error(f"Error during automatic diagram generation: {viz_err}", exc_info=True)
+            results["auto_visualization"]["status"] = "error" # Add overall status
+            if results["status"] == "success": results["status"] = "warning"
+            results["message"] += f" Warning: Automatic diagram generation failed: {viz_err}."
+    else:
+        logger.info("Automatic diagram generation is disabled in config.")
+        results["auto_visualization"]["status"] = "disabled"
+    # --- END Auto Diagram Generation ---
 
     # --- Final Status Check & Return ---
     if results["status"] == "success": print("Project analysis completed successfully."); results["message"] = "Project analysis completed successfully."
-    elif results["status"] == "warning": print("Project analysis completed with warnings. Check logs."); results["message"] = results.get("message", "") + " Project analysis completed with warnings."
+    elif results["status"] == "warning": print(f"Project analysis completed with warnings: {results.get('message', '')} Check logs."); # results["message"] already appended to
+    else: print(f"Project analysis failed: {results.get('message', '')}. Check logs.") # For "error" status
     return results
 
 def _is_empty_dir(dir_path: str) -> bool:

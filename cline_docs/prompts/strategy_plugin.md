@@ -1,6 +1,6 @@
-# **Cline Recursive Chain-of-Thought System (CRCT) - Strategy Plugin**
+# **Cline Recursive Chain-of-Thought System (CRCT) - Strategy Plugin (Iterative)**
 
-This Plugin provides detailed instructions and procedures for the Strategy phase of the CRCT system. It guides the critical, exhaustive process of translating the high-level system design into a fully sequenced and actionable implementation plan based on **verified** project dependencies. *All* planning, from top-level modules to granular tasks, must be completed before transitioning to Execution.
+This Plugin provides detailed instructions and procedures for the Strategy phase of the CRCT system. It guides an iterative, exhaustive process of **constructing and maintaining a comprehensive, dependency-aware project roadmap**. This roadmap is built by translating high-level system design and cycle goals into a fully sequenced and actionable implementation plan, embodied in the Hierarchical Design Token Architecture (HDTA). Planning is performed by focusing on **one defined area (module, feature set) at a time** to maintain minimal context, recursively building the roadmap until all components of the cycle's goals are planned and then unified. All `Strategy_*` tasks for planning and all `Execution_*` tasks comprising the roadmap for the targeted work of the cycle must be defined before transitioning to Execution.
 Use this in conjunction with the Core System Prompt.
 
 **Entering and Exiting Strategy Phase**
@@ -8,287 +8,357 @@ Use this in conjunction with the Core System Prompt.
 **Entering Strategy Phase:**
 1.  **`.clinerules` Check (Mandatory First Step)**: Read `.clinerules` file content.
 2.  **Determine Current State**:
-    *   If `[LAST_ACTION_STATE]` indicates `current_phase: "Strategy"`, proceed with the instructions below, resuming from the action indicated by `next_action`.
+    *   If `[LAST_ACTION_STATE]` indicates `current_phase: "Strategy"`, proceed with the instructions below, resuming from the action indicated by `next_action`. Consult `activeContext.md` for finer-grained state within that action.
     *   If `[LAST_ACTION_STATE]` indicates `next_phase: "Strategy"`, this signifies a transition from a previous phase (likely Set-up/Maintenance). Proceed with the instructions below, starting from **Section II, Step 0**.
 3.  **User Trigger**: If starting a new session and `.clinerules` indicates the system *was* in Strategy or *should transition* to Strategy, proceed with these instructions.
 
 **Exiting Strategy Phase:**
-1.  **Completion Criteria (Mandatory Check)**: Verify ALL the following are met:
-    *   A comprehensive implementation sequence based on dependency analysis has been defined for all planned work (documented in Implementation Plans or respective `*_module.md` files).
-    *   All high-priority work planned for this strategy cycle has been decomposed into atomic Task Instructions (`*.md`), with clear phase prefixes (`Strategy_*`, `Execution_*`).
-    *   All necessary HDTA documents (System Manifest, Domain Modules, Implementation Plans, Task Instructions) have been created or updated according to the plan, with no placeholders or incomplete sections relevant to the planned work.
-    *   `Execution_*` tasks have been sequenced and prioritized (documented in Implementation Plans or respective `*_module.md` files).
-    *   All HDTA documents are correctly linked (Tasks from Plans, Plans from Modules, Modules from Manifest).
-    *   All `Strategy_*` tasks identified during this phase have been completed.
-    *   The `hierarchical_task_checklist_[cycle_id].md` reflects the completed planning state.
+1.  **Completion Criteria (Mandatory Check)**: Verify ALL the following are met for the current Strategy cycle's goals, signifying a complete and actionable roadmap for this cycle:
+    *   All identified areas/modules relevant to the cycle's goals have been planned according to the iterative process, and their respective HDTA documents are complete.
+    *   A comprehensive implementation sequence based on dependency analysis has been defined for all planned work (documented in relevant Implementation Plans or `*_module.md` files, and unified in `roadmap_summary_[cycle_id].md`).
+    *   All high-priority work planned for this strategy cycle has been decomposed into atomic Task Instructions (`*.md`), with clear phase prefixes (`Strategy_*`, `Execution_*`), and explicit minimal context links.
+    *   All necessary HDTA documents (System Manifest, Domain Modules, Implementation Plans, Task Instructions) relevant to the planned work have been created or updated, forming a cohesive and linked roadmap. No placeholders or incomplete sections relevant to the planned work remain.
+    *   `Execution_*` tasks have been sequenced and prioritized within their respective areas and reviewed for inter-area consistency during unification.
+    *   All HDTA documents are correctly linked (Tasks from Plans, Plans from Modules, Modules from Manifest), reflecting the roadmap structure.
+    *   All `Strategy_*` tasks identified and scoped for completion *during this Strategy phase* (including those for planning sub-components, HDTA creation/refinement, or resolving specific planning ambiguities) have been completed.
+    *   The `hierarchical_task_checklist_[cycle_id].md` reflects the completed planning state for all cycle goals.
+    *   The `roadmap_summary_[cycle_id].md` has been created, reviewed for coherence, and accurately reflects the unified roadmap for all cycle goals.
 2.  **`.clinerules` Update (Mandatory MUP Step)**: If completion criteria are met, update `.clinerules` `[LAST_ACTION_STATE]` **exactly** as follows:
     ```
-    last_action: "Completed Strategy Phase: Defined Implementation Sequence and Prioritized Tasks"
+    last_action: "Completed Strategy Phase: Unified Roadmap for All Cycle Goals"
     current_phase: "Strategy"
     next_action: "Phase Complete - User Action Required"
     next_phase: "Execution"
     ```
+    Also, consider if any profound, reusable insights were gained during this phase that warrant addition to the `[LEARNING_JOURNAL]` as per Core Prompt guidelines.
 3.  **Pause for User Action**: After successfully updating `.clinerules`, state that the Strategy phase is complete and you are awaiting user action (e.g., a new session start) to begin the Execution phase. Do not proceed further in this session. Refer to Core System Prompt, Section III for the phase transition checklist.
 
 ## I. Phase Objective & Guiding Principles
 
-**Objective**: To create a comprehensive, dependency-aware **implementation roadmap** that spans all modules and files targeted for the current development cycle. This exhaustive process involves reviewing and creating all necessary HDTA documentation **following a strict top-down hierarchy**, completing all `Strategy_*` tasks, systematically decomposing goals, rigorously analyzing dependencies and their underlying meaning, sequencing granular tasks with appropriate phase prefixes (`Strategy_*`, `Execution_*`), determining the correct build order based on verified dependencies, and prioritizing work for the Execution phase. All planning for the targeted work must be completed before moving forward.
+**Objective**: The primary objective of the Strategy Phase is to **construct, refine, and maintain a comprehensive, dependency-aware, and actionable project roadmap** for the current development cycle's goals. This is achieved by iteratively planning **one defined area (module, feature, or task set) at a time**, like assembling Lego blocks. This roadmap is hierarchically structured using the HDTA (System Manifest → Domain Modules → Implementation Plans → Task Instructions). The process is iterative, focusing on one defined "area" (module, feature) at a time to manage complexity and context. For each area, the relevant segment of the roadmap is built by reviewing high-level context, deeply analyzing dependencies, decomposing work into atomic Task Instructions with minimal context, and sequencing these tasks. The phase culminates in unifying these area-specific plans into a cohesive `roadmap_summary_[cycle_id].md` and ensuring all `Strategy_*` planning tasks are complete before transitioning to Execution.
 
-**CRITICAL FIRST STEP**: Before any planning or decomposition, you MUST analyze existing dependencies using `show-keys` and `show-dependencies` commands (see Section II, Step 1).
-**Failure to check dependencies at the start of this phase is a CRITICAL FAILURE**, as it risks generating inaccurate plans that ignore the system's foundational relationships, leading to project failure.
+**CRITICAL CONSTRAINT: MINIMAL CONTEXT LOADING.** Due to LLM context window limitations, each planning step, especially within a loop for a specific area, MUST focus on loading and processing only the information strictly necessary for that step and area. Avoid loading entire large files if only sections or summaries are needed. Proactively manage what is loaded into your working context.
 
 **Guiding Principles**:
-1.  **Mandatory Dependency Analysis (CRITICAL FIRST STEP)**: Before any strategic planning or HDTA document creation/review, analyze existing dependencies using `show-keys` to identify areas needing verification (if Set-up/Maintenance wasn't fully completed) and `show-dependencies` to understand relationships across all relevant trackers (`doc_tracker.md`, mini-trackers, `module_relationship_tracker.md`). **Failure to perform this step is a CRITICAL FAILURE**, as the CRCT system relies on dependency knowledge to sequence tasks correctly and avoid catastrophic planning errors. This is not optional—it is the foundation of your roadmap.
-2.  **Exhaustive HDTA Review and Creation (Strict Top-Down)**: All HDTA documentation must be reviewed for accuracy and completeness **respecting the hierarchy: System Manifest -> Domain Modules -> Implementation Plans -> Task Instructions.** Only AFTER understanding the context from a higher level should you proceed to review or create documents at the next level down. **Deviating from this top-down flow is a violation of CRCT principles and will lead to fragmented planning.** If any document is missing for the planned work, create it using the appropriate template *at the correct point in the top-down flow*. Ensure documents have no placeholders or incomplete sections relevant to the plan.
-3.  **Dependency-Driven Sequencing**: Verified relationships ('<', '>', 'x', 'd') in trackers, understood through `show-dependencies` and file content analysis, are the **primary guide** for determining task order.
-4.  **Plan Top-Down, Build Bottom-Up**: Define the strategy starting from high-level goals (informed by `system_manifest.md`, `progress.md`, `activeContext.md`) and progressively decompose them through Domain Modules, Implementation Plans, and finally into specific Tasks, **always reading/creating documents in that hierarchical order.** Execution order is determined by starting with foundational tasks (those with no unmet dependencies) and building upwards.
-5.  **Strategic HDTA Creation**: HDTA documents are the **structured output of the strategic planning process**, capturing objectives, steps, context, and dependencies. Create or update them *as needed* to define the plan for the targeted work.
-6.  **Clear Phase Labeling**: Tasks must be prefixed with `Strategy_*` (for planning tasks completed in this phase) or `Execution_*` (for implementation tasks passed to the Execution phase).
-7.  **Minimal Context, Maximum Guidance**: Create clear, concise Task Instructions that provide the Execution phase with necessary guidance and *minimal* context links without unnecessary detail.
-8.  **Focused Planning**: While comprehensive for the *target* features/modules of the cycle, ensure the plan is focused and achievable within a reasonable timeframe. Defer unrelated work if necessary.
+1.  **Roadmap as Primary Output**: All activities in this phase contribute to building or refining the hierarchical project roadmap, embodied by the HDTA documents.
+2.  **Iterative Area-Based Planning (Lego-Block Approach)**: Decompose the overall cycle goals into manageable "areas." Plan each area exhaustively in a dedicated loop (see Section II), treating it as a segment of the overall roadmap to be meticulously detailed with atomic tasks (Lego blocks).
+3.  **Minimal Context Loading (CRITICAL)**: In each step of a planning loop, load only the documents, dependency information, and sections of files essential for the current area and task. **This is paramount to avoid context overload and maintain focus.**
+4.  **Mandatory Dependency Analysis (Scoped & Deep)**:
+    *   **CRITICAL FIRST STEP for each Area**: Before detailed planning for an area, analyze its specific dependencies using `show-keys` and `show-dependencies`.
+   *   **Leverage Visualizations**: Utilize auto-generated diagrams located in `{memory_dir}\dependency_diagrams` or generate focused diagrams (`visualize-dependencies --key ...`) as aids to comprehend complex relationships within or between areas, complementing textual analysis.
+    *   **Deep Understanding**: For these dependencies, use `read_file` on *relevant sections* of linked files to understand *why* the dependency exists (function call, data structure, conceptual prerequisite), what *specific parts* are relevant, and the *implication* for implementation order.
+    *   **CRITICAL FAILURE**: Failure to check and understand relevant dependencies is a CRITICAL FAILURE, risking an inaccurate or unworkable roadmap and project failure.
+5.  **Top-Down Review, Bottom-Up Task Building (Per Area)**: For each area, start by reviewing its high-level context within the roadmap (System Manifest (context) → relevant Domain Module → relevant Implementation Plan(s) for that area) to align planning. Then, build out atomic Task Instructions with minimal context links.
+6.  **Atomic Task Instructions**: Decompose each area's work into small, actionable `Strategy_*` or `Execution_*` tasks, each in its own `*.md` file. Each task must have clear objectives, precise steps, and **explicitly listed minimal context links and dependencies**. If a task requires linking to more than 3-4 separate code files or many disparate documentation sections, consider if it's truly atomic.
+7.  **HDTA as the Roadmap's Structure**: Create or update HDTA documents (Domain Modules, Implementation Plans, Task Instructions) *as needed* for the current area, ensuring they are complete, accurate, and correctly linked to form a coherent segment of the roadmap. Use templates from `cline_docs/templates/`.
+8.  **Trackers for Progress & Transparency**:
+    *   `hdta_review_progress_[session_id].md`: For logging document review status.
+    *   `hierarchical_task_checklist_[cycle_id].md`: To track the planning status of areas and their constituent tasks within the cycle goals, effectively tracking roadmap completion.
+9.  **Unification and Review for a Cohesive Roadmap**: After planning all areas relevant to the cycle goals, unify their individual plans. Review the combined tasks to ensure alignment, resolve inter-area dependency conflicts, and create a cohesive `roadmap_summary_[cycle_id].md` representing the complete plan for the cycle.
+10. **Recursive Decomposition for Complexity**: If an aspect within an area is too complex for immediate atomic task definition (within context limits), create a specific `Strategy_PlanSubComponent_*.md` task. This task's objective will be to perform the detailed planning for that sub-component, effectively drilling down to a more granular level of the roadmap.
+11. **Clear Phase Labeling**: Tasks must be prefixed with `Strategy_*` (for planning, analysis, HDTA creation/updates, roadmap construction completed in this phase) or `Execution_*` (for implementation tasks defined in the roadmap, to be passed to the Execution phase).
 
-## II. Strategic Planning Workflow: Defining the Implementation Roadmap
+## II. Strategic Planning Workflow: Iterative Roadmap Development
 
-**Directive**: Develop a comprehensive implementation roadmap by reviewing and creating all HDTA documentation **strictly following the top-down hierarchy (Manifest -> Module -> Plan -> Task)**, completing all `Strategy_*` tasks, systematically decomposing goals, rigorously analyzing dependencies and their underlying meaning, sequencing granular tasks with appropriate phase prefixes, and prioritizing work for focused execution. This is an exhaustive process covering all targeted areas for the cycle.
+**Directive**: Construct and refine a comprehensive implementation roadmap for the current cycle's goals by:
+1. Defining overall cycle goals and identifying relevant areas of the roadmap to be detailed.
+2. Iteratively planning one area/module at a time, using minimal context and following the steps below to build out its segment of the roadmap.
+3. Completing all `Strategy_*` tasks associated with the planning process and roadmap construction.
+4. Unifying the plans for all areas into a cohesive, final roadmap for the cycle.
 
 **Procedure**:
 
-*   **Check for Unarchived Tracker Files**: Before beginning this Strategy cycle's planning, quickly review the `{memory_dir}/` directory for any `hdta_review_progress_*.md` or `hierarchical_task_checklist_*.md` files from previous cycles that were not archived during Cleanup/Consolidation. If found, note any tasks not completed for transfer to new files for this cycle. Otherwise mark these files for the next Cleanup/Consolidation phase as a persistent step in activeContext. Proceed with creating new tracker files for the current cycle as instructed below. State: "Checked for unarchived tracker files. Found: [List found files, or 'None']."
+**Phase Initialization & Overall Goal Definition**
 
+0.  **Initialize Strategy Cycle & Define Overall Cycle Goals.**
+    *   **Action A (.clinerules & Trackers Setup)**:
+        *   Read `.clinerules` to confirm current state (`current_phase`, `next_action`).
+        *   Check `{memory_dir}/` for unarchived `hdta_review_progress_*.md` or `hierarchical_task_checklist_*.md` files from previous cycles. Note in `activeContext.md` any incomplete items that might need transfer to new files for *this* cycle; mark old files for future Cleanup/Consolidation. State: "Checked for unarchived tracker files. Found: [List or 'None']."
+        *   Create/Initialize `hdta_review_progress_[session_id].md` using `cline_docs/templates/hdta_review_progress_template.md`. Populate "Date Created" and "Session ID". State: "Initialized HDTA Review Progress Tracker: `hdta_review_progress_[session_id].md`."
+    *   **Action B (Define Overall Cycle Goals)**:
+        *   Read `activeContext.md`, `system_manifest.md` (for high-level project scope), and `progress.md` (for overall project status) to understand current project status and potential focus areas for roadmap development.
+        *   Propose specific, high-level goals for *this entire Strategy engagement/cycle*. These goals will define the scope of the roadmap to be detailed. State: "Proposed overall goals for this Strategy cycle: [List of goals]."
+        *   If goals are unclear or too broad for a single cycle, use `ask_followup_question` for user clarification and confirmation.
+        *   Once confirmed, update `activeContext.md` with these *overall cycle goals* and any specific directives from the user regarding focus or priorities. State: "Confirmed overall cycle goals: [List]. Documented in `activeContext.md`."
+    *   **Action C (Initialize Hierarchical Task Checklist with Areas for Roadmap)**:
+        *   Create `hierarchical_task_checklist_[cycle_id].md` using `cline_docs/templates/hierarchical_task_checklist_template.md` (replace `[cycle_id]` with a unique identifier for the current planning cycle, e.g., date-time based).
+        *   Populate this checklist by listing all major Domain Modules (from `system_manifest.md`) or distinct feature areas that are **directly relevant to the confirmed overall cycle goals**. These become the "areas" for which roadmap segments will be detailed. Mark them initially as "[ ] Unplanned." State: "Initialized `hierarchical_task_checklist_[cycle_id].md`. Populated with areas relevant to cycle goals for roadmap construction: [List of areas, e.g., Module A, Feature Set B]."
+    *   **Action D (Initial High-Level Dependency Overview - Optional but Recommended)**:
+        *   Briefly review `module_relationship_tracker.md` using `show-keys` and `show-dependencies` focused on very high-level keys from `system_manifest.md` or keys representing entire modules that are part of the overall cycle goals. The aim is to get a general sense of major interdependencies between these high-level areas *before* selecting the first one for detailed planning. Do *not* perform a deep dive yet. State: "Performed high-level dependency overview for cycle goals. Key inter-area interactions noted: [Summary if any, or 'None apparent at this level']." This can inform the order of area selection.
+        *   **Check Auto-Generated Diagrams**: Check if `config["visualization"]["auto_generate_on_analyze"]` is true. If so, check for the existence of `<memory_dir>/dependency_diagrams/project_overview_dependencies.mermaid` and relevant `<memory_dir>/dependency_diagrams/module_[ModuleKey]_dependencies.mermaid` files.
+        *   **Briefly Review Overview Diagram (if exists)**: Use `read_file` to load `project_overview_dependencies.mermaid`. Analyze the Mermaid structure *textually* to gain a visual sense of major component groupings and connections relevant to the cycle goals. State: "Reviewed auto-generated project overview diagram (if found). Initial visual insights: [Brief summary of structure/connections relevant to goals]." **Do not attempt to render the diagram.**
+    *   **State**: "Strategy Cycle Initialized. Overall cycle goals defined and high-level areas for roadmap detailing identified. Ready to select first area for focused planning."
+    *   **Update `.clinerules` `[LAST_ACTION_STATE]`**: `next_action: "Select Area for Planning"`. Update `activeContext.md` to note completion of Step 0.
 
-0.  **Identify and Confirm Strategy Cycle Goals.**
-    *   **Directive:** Before any dependency analysis or detailed planning, clearly define the scope and primary goals for *this specific* Strategy cycle. This ensures all subsequent planning and analysis are focused on the relevant areas.
-    *   **Action:** Read `activeContext.md`, `system_manifest.md`, `progress.md`, and `hdta_review_progress_*.md` or `hierarchical_task_checklist_*.md` if present to understand the overall project status, previous actions, and potential areas for focus.
-    *   **Action:** Explicitly state the proposed goals and target areas (modules, features, etc.) for this cycle based on the review. Identify which Domain Modules, Implementation Plans, or specific code/doc files are likely to be involved.
-    *   **Action:** If the goals are unclear or require user input, use `ask_followup_question` to get clarification.
-    *   **Action:** Update `activeContext.md` to clearly document the confirmed goals and target areas for this Strategy cycle. State: "Identified/Confirmed goals for this Strategy cycle: [List of goals]. Target areas: [List of target areas]."
-    *   **State:** "Completed identification of Strategy cycle goals. Proceeding to analyze relevant dependencies."
+**Iterative Area Planning Loop** (Repeat Steps 1-7 for each "area" identified in `hierarchical_task_checklist_[cycle_id].md` relevant to cycle goals)
 
-1.  **Analyze Dependencies Relevant to Goals.**
-    *   **CRITICAL STEP**: This step focuses the mandatory dependency analysis on the goals identified in Step 0. Failure to base planning on relevant dependency knowledge is a CRITICAL FAILURE, as it risks misaligned sequences and broken implementations.
-    *   **Directive:** Analyze existing dependencies to understand the relationships specifically within and between the target areas identified in Step 0, grounding planning in *relevant* system constraints.
-    *   **Action:** Identify keys (using `cline_utils\dependency_system\core\global_key_map.json` to find files within target directories) that correspond to the target areas defined in Step 0.
-    *   **Action**(Optional, use if global key map is unavailable or keys for a specific tracker are needed): Use `show-keys --tracker <tracker_file_path>` on the trackers (`doc_tracker.md`, `module_relationship_tracker.md`, and relevant mini-trackers within target areas) *specifically focusing on the identified keys*. Note any keys that still show `(checks needed: p, s, S)` within the scope of the current goals; these may require verification if critical to the plan.
-    *   **Action**: For each key of interest *within the target areas*, use `show-dependencies --key <key>` to review all incoming and outgoing dependencies. State: "Executed `show-dependencies --key {key}`. Reviewed dependencies: `{summary_of_relationships}`."
-    *   **Deep Understanding**: For dependencies ('<', '>', 'x', 'd') *within the scope of the goals*, use `read_file` to examine the content of related files. Ask and document:
-       - *Why* does A depend on B? (Function call, data structure, conceptual prerequisite?)
-       - What *specific* parts of B are relevant to A?
-       - What is the *implication* for implementation order and refactoring?
-       State: "Deepened analysis of dependencies relevant to `{target_area}`. Confirmed `{key_a}` requires `{key_b}` due to `{detailed_reason}`. Sequencing implication: Implement `{key_b}` task first."
-    *   **Clarification:** The primary purpose of this step is to understand the *existing relationships relevant to the plan*, not necessarily to perform a comprehensive re-verification of all project dependencies if Set-up/Maintenance is assumed complete. However, be mindful of unverified dependencies (`p`, `s`, `S`) that impact the target areas.
-    *   **State:** "Completed analysis of dependencies relevant to target areas [List of areas]. Key relationships identified: [Summary]. Proceeding to HDTA documentation review."
+1.  **Select ONE Area for Focused Planning (Loop Start).**
+    *   **Directive**: Choose one "area" (e.g., a Domain Module, a specific feature set) from `hierarchical_task_checklist_[cycle_id].md` that is marked as "[ ] Unplanned" (or "[ ] Partially Planned" if resuming a previously started area) and falls under the overall cycle goals. Prioritize based on user input, `activeContext.md` notes, logical prerequisites (e.g., from Step 0.D), or potential to unblock other areas.
+    *   **Action**: Consult `hierarchical_task_checklist_[cycle_id].md` and `activeContext.md`.
+    *   **Action**: Select **one** area. State: "Selected area for this planning loop: `[Area Name]`. Current status in checklist: `[Status from checklist]`."
+    *   **Action**: Define specific, measurable objectives for planning *this area* in this iteration. What specific HDTA outputs (segments of the roadmap) are expected for this area? Store these objectives in `activeContext.md` under a heading for the current area. State: "Objectives for planning `[Area Name]` in this loop: `[List objectives, e.g., Define Module_X_module.md, Create Implementation Plan for Feature Y, Decompose Feature Y into Execution Tasks]`. Objectives documented in `activeContext.md`."
+    *   **Action**: Update `activeContext.md`: Set `current_planning_area: "[Area Name]"` and list its specific planning objectives for this loop.
+    *   **State**: "Area `[Area Name]` selected. Objectives for this area's planning loop defined in `activeContext.md`. Proceeding to focused dependency analysis for this area."
+    *   **Update `.clinerules` `[LAST_ACTION_STATE]`**: `next_action: "Analyze Dependencies for Selected Area"`. Update `activeContext.md` to note completion of Step 1 for this area.
 
-2. **Review and Create HDTA Documentation (Strict Top-Down Order) & Use HDTA Review Progress Tracker**:
-   * **Directive**: Review, update, or create all necessary HDTA documents **strictly following the top-down hierarchy (System Manifest -> Domain Modules -> Implementation Plans -> Task Instructions)** for the target areas identified in Step 0. Use the HDTA Review Progress Tracker to manage this process.
-   * **Action**: Before starting the review, ensure the HDTA Review Progress Tracker (`hdta_review_progress_[session_id].md`) for the current session is initialized or updated. Check for existing `hdta_review_progress_*.md` files in `{memory_dir}/`. If found, note their existence but proceed with using or creating the tracker for the *current* session as specified below.
-   * **Use HDTA Review Progress Tracker**:
-       * **Initialization**: At the start of the Strategy phase or a new session targeting new work, create a fresh copy of `cline_docs/templates/hdta_review_progress_template.md` as `hdta_review_progress_[session_id].md`. State: "Checked for existing HDTA Review Progress Trackers. Found: [List found files, or 'None']. Created HDTA Review Progress Tracker as `hdta_review_progress_[session_id].md` for the current session."
-       * **Logging Progress**: After reviewing, updating, or creating each HDTA document, update the corresponding entry in the tracker:
-      - Mark the appropriate status checkbox (Not Reviewed / Reviewed / Updated / Created).
-      - Add brief notes summarizing findings or actions taken (e.g., "Updated dependencies section" or "Created from template with full content").
-      - Record the date/time of the last action.
-      - State: "Updated HDTA Review Progress Tracker for `{file_path}` with status `{status}` and notes `{notes}`."
-   * **Avoid Redundancy**: Before reviewing any document, check the tracker to see if it has already been marked as "Reviewed" or "Updated" in this session. If so, skip unless new information or changes necessitate a re-review (e.g., dependency updates or relevance to newly defined goals). State: "Skipped review of `{file_path}` as it is already marked as `{status}` in the HDTA Review Progress Tracker."
-   * **Session Summary**: At the end of the session or upon completing this step, update the "Completion Summary" section of the tracker with counts of reviewed/updated/created documents, list pending documents, and outline next steps. State: "Completed HDTA review step. Updated Completion Summary in `hdta_review_progress_[session_id].md` with pending items and next steps."
-   * **System Manifest First**: Always start by reading/reviewing `system_manifest.md`. Ensure it accurately reflects the high-level architecture and lists known Domain Modules relevant to the goals. Update if necessary. State: "Starting HDTA review with `system_manifest.md`."
-   * **Domain Modules Next**: For the target area(s) of focus (or all modules if doing a full review), read/review the relevant `*_module.md` files linked from the manifest. Check for completeness, accuracy, and links to Implementation Plans. Create or update as needed *based on manifest context and relevance to goals*. State: "Proceeding to review Domain Module `{module_name}_module.md`."
-   * **Implementation Plans Then**: For each relevant Domain Module within the target area, read/review its linked `implementation_plan_*.md` files. Check for clear objectives, affected components, high-level steps, and links to Task Instructions. Create or update *based on module context and relevance to goals*. State: "Proceeding to review Implementation Plan `{plan_name}.md`."
-   * **Task Instructions Last**: Only *after* understanding the context from the parent Implementation Plan and its relevance to the goals should you review, create, or update specific Task Instruction files (`*.md`). Ensure they have clear atomic objectives, steps, minimal context links, and dependencies. State: "Proceeding to review/create Task Instruction `{task_name}.md` based on parent plan `{plan_name}.md` and cycle goals."
-   * **CRITICAL WARNING**: Do NOT jump directly to creating or reviewing Task Instructions without first processing the higher levels (Manifest, Module, Plan) and confirming relevance to the cycle goals. This breaks the recursive decomposition flow and risks creating tasks disconnected from the overall strategy and context. **Adherence to the top-down hierarchy and goal relevance is mandatory.**
-   * **General Action**: For each document level, follow the Existence Check -> Accuracy/Completeness Check -> Create/Update logic as previously defined, but ensure you process documents in the strict hierarchical order described above and prioritize based on relevance to the cycle's goals.
-      * **For Each Document**:
-         * **A. Existence Check**: Verify if the document exists for each required HDTA tier (System Manifest, Domain Modules, Implementation Plans, Task Instructions) *within the scope of the cycle's goals*.
-            * If missing: State "File `{file_path}` does not exist. Creating using template." Use the appropriate template from `cline_docs/templates/` (e.g., `system_manifest_template.md`, `module_template.md`, `implementation_plan_template.md`, `task_template.md`) and create the document with all required sections filled, focusing on the cycle's goals.
-            * If exists: State "File `{file_path}` exists. Reviewing for accuracy and completeness based on cycle goals."
-            * If incomplete or outdated: State "File `{file_path}` exists but needs updates for the cycle's goals. Updating." Update using the template structure, preserving valid content and filling in missing details related to the goals.
-            * If complete and accurate: State "File `{file_path}` is complete and accurate for cycle goals. No update needed."
-         * **C. Create/Update**: If creation or update is needed, use `write_to_file` to save the document, ensuring all required sections are filled based on the template, dependency analysis from Step 1, and the cycle's goals.
-   * **Action**: Ensure `system_manifest.md` includes all relevant Domain Modules (for the goals), and each relevant Domain Module links to its Implementation Plans, which in turn link to Task Instructions.
-   * **Action**: Verify that all HDTA documents relevant to the cycle's goals are free of placeholders and fully specify objectives, steps, dependencies, and context links *within that scope*.
-   * **Add Missing Dependency Links**: While defining HDTA documents, if you identify crucial dependency links (especially code-to-doc) that were missed during Set-up/Maintenance and are necessary for context *for the current plan*, use `add-dependency` to add them to the appropriate tracker (usually the mini-tracker for the code file). State your reasoning clearly.
+2.  **Focused Dependency Analysis for the SELECTED Area.**
+    *   **CRITICAL STEP**: Ground this area's segment of the roadmap in its specific system constraints. Failure to perform this thoroughly is a CRITICAL FAILURE.
+    *   **Directive**: Analyze dependencies specifically *within and immediately impacting* the `[Area Name]`. Load only necessary tracker information and file sections.
+    *   **Action (Identify Keys)**: Identify keys relevant to `[Area Name]` (e.g., from its `*_module.md` if it exists, key files within its conceptual scope, or keys from `doc_tracker.md` if it's a documentation-heavy area). Use `show-keys --tracker <relevant_tracker>` *filtered for this area if possible, or on its mini-tracker*.
+    *   **Action (Show Dependencies)**: For each primary key of interest *within this area's scope*, use `show-dependencies --key <key>`. State: "Executed `show-dependencies --key {key}` for `[Area Name]`. Reviewed dependencies: `{summary_of_relationships_and_their_types}`."
+    *   **Action (Consult/Generate Diagram)**:
+        *   **Check Auto-Generated:** If `[AreaName]` corresponds to a module key (e.g., "1B") and auto-generation is enabled, check for `<memory_dir>/dependency_diagrams/module_[AreaName]_dependencies.mermaid`. If found, `read_file` its content. State: "Reading auto-generated module diagram for `[AreaName]`."
+        *   **Generate Focused (If Needed):** If no relevant auto-diagram exists, OR if the area is not a standard module, OR if a specific intersection of keys needs visualizing, generate an on-demand diagram. Use `python -m cline_utils.dependency_system.dependency_processor visualize-dependencies --key <key1> [--key <key2> ...] --output {memory_dir}/[AreaNameOrFocus]_deps_visualization.md`. State: "Generated focused dependency visualization for `[AreaName/Focus]` saved to `{memory_dir}/[AreaNameOrFocus]_deps_visualization.md`."
+        *   **Analyze Diagram Structure**: Review the Mermaid code (from read file or output confirmation). Note key connections, groupings, or potential complexities highlighted visually. State: "Analyzed diagram structure. Visual insights: [e.g., Key X is highly connected internally, Key Y bridges to external Module Z]."
+    *   **Action (Deep Understanding - MINIMAL LOAD & FOCUSED)**: For dependencies ('<', '>', 'x', 'd') identified above that *directly impact the plan for this area* (i.e., they suggest prerequisites or co-requisites for work *within this area*):
+        *   Use `read_file` to examine *only relevant sections* of the source and target files (e.g., specific function signatures, class definitions, relevant documentation paragraphs).
+        *   Ask and document (in `activeContext.md` or a temporary scratchpad if extensive, to be summarized):
+            *   *Why* does A depend on B in the context of `[Area Name]`? (Is it a function call, data structure usage, a conceptual prerequisite for understanding, a direct include/import?)
+            *   What *specific parts* of B are relevant to A for this area?
+            *   What is the *implication* for implementation order or task definition *within this area's roadmap segment*?
+        *   State: "Deepened analysis for dependency between `{key_a}` and `{key_b}` related to `[Area Name]`. Confirmed `{key_a}` requires/is_related_to `{key_b}` due to `{detailed_reason_based_on_file_content}`. Sequencing implication for this area: `[e.g., Task for key_b component must precede task for key_a component within this area's plan]`."
+    *   **State**: "Completed focused dependency analysis for area `[Area Name]`. Key relationships and their implications for local sequencing and roadmap construction understood. Proceeding to HDTA review and creation for this area."
+    *   **Update `.clinerules` `[LAST_ACTION_STATE]`**: `next_action: "Review/Create HDTA for Selected Area"`. Update `activeContext.md` to note completion of Step 2 for this area.
 
-3. **Review and Assign Task Prefixes & Create Hierarchical Task Checklist**:
-   * **Action**: Scan all Task Instructions *relevant to the cycle's goals* for unprefixed tasks (e.g., `task_name.md` instead of `Strategy_task_name.md` or `Execution_task_name.md`).
-      * For each unprefixed task:
-         * Analyze the task’s content to determine its purpose in relation to the cycle goals.
-         * Assign the appropriate prefix:
-            * `Strategy_*`: For tasks involving planning, decomposition, or HDTA document creation/updates (to be completed in this phase).
-            * `Execution_*`: For tasks involving code implementation, file modifications, or other execution steps (to be completed in the Execution phase).
-         * Rename the file to include the prefix (e.g., `task_name.md` → `Strategy_task_name.md` or `Execution_task_name.md`).
-         * State: "Task `{task_name}` lacks prefix. Analyzed and assigned prefix `{Strategy_|Execution_}` based on cycle goals. Renamed to `{new_file_name}`."
-   * **Action**: List all tasks with their assigned prefixes in the respective `implementation_plan_*.md` or `*_module.md` file for clarity, ensuring these are the plans/modules relevant to the cycle goals.
+3.  **Review/Create HDTA Documents for the SELECTED Area (Strict Top-Down, Minimal Load).**
+    *   **Directive**: Review, update, or create HDTA documents (System Manifest for context, then Domain Module, then Implementation Plan(s)) **strictly for the `[Area Name]`**, following a top-down hierarchy to build its segment of the roadmap. Load minimal content necessary for each step. Update `hdta_review_progress_[session_id].md` after each document action.
+    *   **Action (System Manifest - Context Only)**:
+        *   Briefly `read_file` `system_manifest.md`. Scan *only* for high-level architectural context, links to the Domain Module representing `[Area Name]` (if it exists), or to understand where a new module for `[Area Name]` would fit in the overall roadmap. **Do not load or parse the entire file if not needed for this area's context.**
+        *   State: "Reviewed `system_manifest.md` for high-level context related to `[Area Name]`. `[Note any direct relevance or if [Area Name] as a new module needs adding later]`."
+        *   Update `hdta_review_progress_[session_id].md` for `system_manifest.md` (likely "Reviewed").
+    *   **Action (Domain Module - Focus on `[Area Name]`)**:
+        *   Target the `[Area Name]_module.md` file (or equivalent if `[Area Name]` is a feature set within a larger existing module).
+        *   Check existence. If missing and `[Area Name]` represents a new module, state intention to create it using `cline_docs/templates/module_template.md`.
+        *   Use `read_file` to load its content (or the template if creating). **Load only this specific module file.**
+        *   Review/Update/Create the module document. Ensure it comprehensively describes `[Area Name]`'s purpose, interfaces, key components, high-level implementation details, and lists its associated Implementation Plans (to be defined/linked next). This forms a key part of the roadmap for this area.
+        *   `write_to_file` to save changes to `[Area Name]_module.md`. State: "Reviewed/Updated/Created `[Area Name]_module.md`."
+        *   Update `hdta_review_progress_[session_id].md`: Mark `[Area Name]_module.md` status (Reviewed/Updated/Created) and add notes.
+    *   **Action (Implementation Plan(s) - Focus on `[Area Name]` objectives)**:
+        *   Based on the objectives for `[Area Name]` (from `activeContext.md`) and its `_module.md` (if applicable), identify or determine necessary `implementation_plan_*.md` files *specifically for achieving the objectives of `[Area Name]`*. (e.g., `implementation_plan_FeatureY_for_ModuleX.md`).
+        *   For each such plan:
+            *   Check existence. If missing, state intention to create using `cline_docs/templates/implementation_plan_template.md`.
+            *   Use `read_file` to load its content (or template). **Load only this specific plan file.**
+            *   Review/Update/Create the plan. Detail its specific objectives, affected components/files *within this area*, high-level steps, design decisions, algorithms, data flow, and a section for the sequence of atomic Task Instructions (to be populated in Step 4 & 5). This plan is a detailed segment of the roadmap.
+            *   `write_to_file` to save changes. State: "Reviewed/Updated/Created `implementation_plan_[plan_name].md` for `[Area Name]`."
+            *   Link this Implementation Plan from the `[Area Name]_module.md` if applicable. Update and save `[Area Name]_module.md`.
+            *   Update `hdta_review_progress_[session_id].md`: Mark plan status and add notes.
+    *   **Add Missing Functional Dependency Links (If Found)**: If, during HDTA creation for this area, you identify crucial functional dependency links (code-to-doc, or between code elements within this area) that were missed during Set-up/Maintenance and are necessary for context *for this area's plan*, use `add-dependency` to add them to the appropriate tracker (usually the mini-tracker for `[Area Name]_module.md` or a relevant file's mini-tracker if it has one). State your reasoning clearly. This is for immediate, critical needs, not a full re-verification.
+    *   **State**: "Completed HDTA document review/creation (Manifest context, Domain Module, Implementation Plan(s)) for area `[Area Name]`, forming its core roadmap segment. Proceeding to decompose into atomic tasks."
+    *   **Update `.clinerules` `[LAST_ACTION_STATE]`**: `next_action: "Decompose Area into Atomic Tasks"`. Update `activeContext.md` to note completion of Step 3 for this area.
 
-*   **Create and Use Hierarchical Task Checklist**:
-   * **Initialization**: After completing HDTA documentation review (Step 2) and task prefix assignment, create a comprehensive `hierarchical_task_checklist.md` using the `hierarchical_task_checklist_template.md` from `cline_docs/templates/`. Check for existing `hierarchical_task_checklist_*.md` files in `{memory_dir}/`. If found, note their existence but proceed with creating a new checklist for the *current* cycle as specified below.
-      - Populate the checklist with the full hierarchy of Domain Modules, Implementation Plans, and Task Instructions **relevant to the cycle's goals** based on `system_manifest.md` and related HDTA documents.
-      - Save the file as `hierarchical_task_checklist_[cycle_id].md` (replace `[cycle_id]` with a unique identifier for the current planning cycle or session, perhaps derived from the date/time).
-      - State: "Checked for existing Hierarchical Task Checklists. Found: [List found files, or 'None']. Created Hierarchical Task Checklist as `hierarchical_task_checklist_[cycle_id].md` with project structure *relevant to cycle goals* for progress tracking."
-   * **Tracking Progress**: As tasks, plans, or modules are completed (e.g., after Step 4: Complete Strategy_* Tasks, or during sequencing and prioritization in later steps), update the checklist by marking completed items with `[x]`.
-      - State: "Updated Hierarchical Task Checklist: Marked `{item_name}` as completed."
-   * **Guiding Workflow**: Use the checklist to visually identify the next pending task or area of focus based on the hierarchy and dependency sequence. Prioritize tasks marked as incomplete, especially those unblocking others *within the cycle's goals*.
-      - Periodically update the "Progress Summary" section with counts of completed items, next priority tasks, and any notes on blockers related to the cycle goals.
-      - State: "Reviewed Hierarchical Task Checklist. Next priority task identified as `{task_name}` based on sequence and dependency analysis, relevant to cycle goals."
-   * **Avoid Loops**: If unsure of the next action, refer to the checklist to confirm pending items rather than re-analyzing completed sections. State: "Consulted Hierarchical Task Checklist to avoid redundant analysis. Proceeding with next pending item `{item_name}` relevant to cycle goals."
+4.  **Decompose Area into Atomic Tasks & Define Task Instructions.**
+    *   **Directive**: Based on the Implementation Plan(s) for `[Area Name]`, break down work into the smallest logical, actionable `Strategy_*` or `Execution_*` Task Instructions. These tasks are the most granular part of the roadmap.
+    *   **Action**: For each Implementation Plan associated with `[Area Name]`:
+        *   Iterate through its high-level steps. For each step that requires distinct action:
+            *   Determine if it's a `Strategy_*` (planning, analysis, further HDTA refinement for a sub-part of the roadmap) or `Execution_*` (implementation, file creation/modification, testing setup) task.
+            *   Create a new task file (e.g., `Execution_ImplementFeatureXPart1.md`, `Strategy_RefineAlgorithmForSubmoduleY.md`) using `cline_docs/templates/task_template.md`.
+            *   **Fill in ALL required sections of the task template meticulously**:
+                *   `Objective`: Clear, atomic goal for this single task.
+                *   **`Parent`**: Link to the parent Implementation Plan file.
+                *   **`Context (Minimal Required)`**: Critically important. List *only* essential links and information:
+                    *   Specific function/class definitions (e.g., `path/to/file.py#MyClass.my_method`).
+                    *   Relevant documentation keys/sections (e.g., `doc_tracker_key:1A2#SectionName`).
+                    *   Required data structures or interface definitions.
+                    *   Links to prerequisite Task Instruction keys *if already defined and stable, especially if they produce a direct input for this task*.
+                    *   **AVOID linking entire files unless absolutely unavoidable and the file is small and directly relevant in its entirety.** State justification if an entire file is linked.
+                *   `Steps`: Precise, step-by-step instructions for the LLM executing this task.
+                *   `Dependencies (Requires/Blocks)`: List keys/file names of other Task Instructions this task depends on (`Requires`) or that depend on it (`Blocks`). Focus primarily on tasks *within this area's plan* or to well-defined interface tasks from other *already planned* areas.
+                *   `Expected Output`: What success looks like for this task (e.g., "Function X implemented in file Y.py", "Section Z of doc A.md updated").
+            *   `write_to_file` to save the new Task Instruction file. State: "Created Task Instruction: `{task_file_name}` for area `[Area Name]`."
+            *   Update `hdta_review_progress_[session_id].md` for this new task file (Status: Created).
+            *   Link this new task from its parent Implementation Plan (in the `Tasks` section). `write_to_file` the updated Implementation Plan.
+            *   Update `hierarchical_task_checklist_[cycle_id].md` under `[Area Name]` -> relevant Implementation Plan, to list this task and mark it as "[ ] Defined."
+    *   **Action (Handling Complexity Recursively)**: If a part of `[Area Name]` (or a step in an Implementation Plan) is too complex or large for immediate atomic task definition within reasonable context limits:
+        *   Create a `Strategy_PlanSubComponent_[SubComponentName].md` task. This task's objective will be to perform the detailed planning (further decomposition, more specific HDTA) for that sub-component, creating a more detailed sub-segment of the roadmap.
+        *   This `Strategy_PlanSubComponent_*.md` task might effectively add `[SubComponentName]` as a new, smaller "area" to be addressed in a future planning loop, or it might be a `Strategy_*` task to be completed in Step 6 of the current area's loop if it's about refining existing plans rather than creating entirely new ones.
+        *   State: "Created `Strategy_PlanSubComponent_[SubComponentName].md` to defer/manage detailed planning for complex part of `[Area Name]`. Linked from `[Parent Implementation Plan/Task]`."
+    *   **State**: "Completed task decomposition for area `[Area Name]`. All identified work broken into atomic Task Instructions or deferred via `Strategy_PlanSubComponent_*` tasks, detailing this roadmap segment. Proceeding to sequence tasks for this area."
+    *   **Update `.clinerules` `[LAST_ACTION_STATE]`**: `next_action: "Sequence and Prioritize Tasks for Area"`. Update `activeContext.md` to note completion of Step 4 for this area.
 
-4. **Complete Strategy_* Tasks**:
-   * **Action**: Identify and execute all tasks prefixed with `Strategy_*` listed in the Hierarchical Task Checklist.
-      * **Prioritization**: Complete these tasks before proceeding to further planning steps, as they may involve critical planning or decomposition work.
-      * **Execution**: For each `Strategy_*` task:
-         * Read the task’s instructions and follow its steps.
-         * Update or create HDTA documents as specified.
-         * Mark the task as complete in its file and in the respective `implementation_plan_*.md` or `*_module.md` file.
-         * State: "Completed `Strategy_{task_name}`. Updated `{affected_files}`."
-      * **Verification**: Ensure no `Strategy_*` tasks remain incomplete before proceeding.
-      * State: "All `Strategy_*` tasks completed. Proceeding with roadmap development."
+5.  **Sequence and Prioritize Tasks for the SELECTED Area.**
+    *   **Directive**: Based on dependencies identified in Step 2 (Focused Dependency Analysis) and the `Dependencies (Requires/Blocks)` section of Task Instructions defined in Step 4, determine the execution order for tasks *within `[Area Name]`'s roadmap segment*.
+    *   **Action (Sequence)**:
+        *   Review the `Dependencies (Requires/Blocks)` section of all Task Instructions created for `[Area Name]`.
+        *   Identify foundational tasks (those with no unmet 'Requires' dependencies from other tasks *within this area's current plan*).
+        *   Order subsequent tasks ensuring prerequisites are met. For 'x' (mutual) code dependencies from Step 2, plan for potentially iterative or closely coordinated implementation steps across the linked tasks.
+        *   Document this build sequence in the "Task Sequence / Build Order" section of the relevant Implementation Plan(s) for `[Area Name]`. For each task in the sequence, briefly state its rationale if not obvious from dependencies.
+        *   State: "Determined task sequence for area `[Area Name]`. Sequence documented in `[Implementation Plan file(s)]`."
+    *   **Action (Prioritize)**: Within this determined sequence, prioritize tasks. Considerations:
+        *   Urgency/importance if any specific to this area (from `activeContext.md` or area objectives).
+        *   Potential to unblock the maximum number of subsequent tasks.
+        *   Logical grouping of related work for efficiency.
+        *   Critical path tasks.
+        *   Document the prioritization (e.g., by reordering within the sequence, or adding priority labels like P1, P2, P3) and reasoning in the "Prioritization within Sequence" section of the Implementation Plan(s).
+        *   State: "Prioritized tasks for area `[Area Name]`. Priorities documented in `[Implementation Plan file(s)]`."
+    *   **Action (Update Checklist)**: Update tasks in `hierarchical_task_checklist_[cycle_id].md` under `[Area Name]` from "[ ] Defined" to "[ ] Sequenced & Prioritized".
+    *   `write_to_file` the updated Implementation Plan(s).
+    *   **State**: "Tasks for area `[Area Name]` sequenced and prioritized, refining its roadmap segment. Proceeding to complete local Strategy_* tasks for this area's planning."
+    *   **Update `.clinerules` `[LAST_ACTION_STATE]`**: `next_action: "Complete Strategy Tasks for Area"`. Update `activeContext.md` to note completion of Step 5 for this area.
 
-5. **Confirm Understanding of Current State & Goals**:
-   * **Action**: Refer back to the information gathered during initialization and Step 0. Briefly summarize or confirm your understanding of the primary goals for this planning cycle based on `activeContext.md`, `system_manifest.md`, and `progress.md`. State: "Confirmed understanding of cycle goals: {brief summary}."
+6.  **Complete `Strategy_*` Tasks for the SELECTED Area's Planning.**
+    *   **Directive**: Identify and execute any `Strategy_*` tasks that were created for `[Area Name]` *and are intended to be resolved within this area's current planning loop*. These are tasks related to refining the plan for *this area* (e.g., `Strategy_RefineAlgorithmForFeatureX.md`) or resolving a `Strategy_PlanSubComponent_*.md` task if its scope is limited to further detailing parts of the current area's plan without creating a new major "area." These tasks ensure the roadmap segment for this area is fully detailed.
+    *   **Action**:
+        *   Identify such `Strategy_*` tasks from the `hierarchical_task_checklist_[cycle_id].md` for `[Area Name]` that are marked as "[ ] Sequenced & Prioritized" (or similar status indicating they are ready for action).
+        *   For each such `Strategy_*` task:
+            *   Read its instructions and follow its steps (e.g., perform analysis, update specific HDTA sections, further decompose a complex part into more granular `Execution_*` tasks).
+            *   Update or create any HDTA documents as specified by the task. Ensure these changes are saved and linked appropriately, further solidifying the roadmap.
+            *   Mark the `Strategy_*` task as complete in its own file (e.g., add a "Status: Completed" section) and update its status in the `hierarchical_task_checklist_[cycle_id].md` to "[x] Completed `Strategy_{task_name}`."
+            *   State: "Completed `Strategy_{task_name}` for area `[Area Name]`. Updated `{affected_files}`. Task marked as complete in checklist."
+    *   **Action (Verification)**: Ensure no `Strategy_*` tasks scoped for *this area's planning refinement* remain incomplete before proceeding. Major `Strategy_PlanSubComponent` tasks that define *new areas* will be handled by looping back to Step 1 for that new area.
+    *   **State**: "Applicable `Strategy_*` tasks for refining the plan of area `[Area Name]` completed. This segment of the roadmap is now fully detailed. Proceeding to check for more areas or move to unification."
+    *   **Update `.clinerules` `[LAST_ACTION_STATE]`**: `next_action: "Check Loop or Proceed to Unification"`. Update `activeContext.md` to note completion of Step 6 for this area.
 
-6. **Identify Target Area(s)**:
-   * **Action**: Based on Step 5, explicitly state the primary module(s) or feature(s) selected as the focus for this planning cycle. Ensure all modules are covered in the roadmap.
+7.  **Check Loop or Proceed to Unification.**
+    *   **Action (Mark Area as Planned)**: In `hierarchical_task_checklist_[cycle_id].md`, mark the current `[Area Name]` as "[x] Planned" (or a similar status indicating its individual roadmap segment is complete for this cycle). State: "Marked area `[Area Name]` as Planned in `hierarchical_task_checklist_[cycle_id].md`."
+    *   **Action (Check for More Areas)**: Review `hierarchical_task_checklist_[cycle_id].md`. Are there any other areas (modules/features relevant to the overall cycle goals for roadmap construction) still marked as "[ ] Unplanned" or "[ ] Partially Planned"?
+    *   **If YES (more areas to plan for this cycle)**:
+        *   Update `activeContext.md`: Set `current_planning_area: "None"` (as we are about to select a new one). Note that planning for `[Area Name]` is complete for this iteration.
+        *   Update `.clinerules` `[LAST_ACTION_STATE]`:
+            ```
+            last_action: "Completed planning for area: [Area Name]. More areas pending for roadmap construction within cycle goals."
+            current_phase: "Strategy"
+            next_action: "Select Area for Planning" // Points back to Step 1
+            next_phase: "Strategy"
+            ```
+        *   State: "Completed planning for area: `[Area Name]`. More areas within the current cycle goals need roadmap detailing. Returning to select next area."
+        *   **Return to Step 1.**
+    *   **If NO (all areas for this cycle's goals are planned)**:
+        *   Update `activeContext.md`: Set `current_planning_area: "None"`. Note that all individual area planning is complete.
+        *   State: "All areas relevant to the current cycle goals have had their roadmap segments planned individually. Proceeding to unify the overall roadmap."
+        *   **Update `.clinerules` `[LAST_ACTION_STATE]`**: `next_action: "Unify and Review Roadmap"`.
+        *   **Proceed to Step 8.**
 
-7. **Analyze Dependencies & Understand Interactions**:
-   * **CRITICAL STEP**: This step builds on the mandatory analysis done in Step 1. If you have not completed Step 1, stop immediately and return to it. **Failure to base planning on dependency knowledge is a CRITICAL FAILURE**, as it risks misaligned sequences and broken implementations.
-   * **Action**: For all target areas identified in Step 6, deepen your understanding of interactions using the dependency system *before* detailed planning. Revisit `show-dependencies --key <relevant_key>` for key files or modules involved (e.g., main module key like `1Ba`, or specific file key like `1Ba2`) if needed. State: "Revisited dependencies for `{key}` to confirm planning constraints: `{summary_of_relationships}`."
-   * **Interpret & Document**: Analyze *why* dependencies exist and the *implications* for implementation order within the target area.
-      * `Depends On ('<')`: Files/modules listed are **prerequisites**. Work cannot start until these are complete.
-         * When show-dependencies returns '<' relationship:
-            1. Read source/target files via `read_file`.
-            2. Perform line-level analysis (function/method calls, class inheritance, documentation references).
-            3. Confirm relationship type matches actual usage.
-      * `Depended On By ('>')`: Files/modules rely on the key. Changes may impact downstream components.
-      * `Documentation ('d')`: Indicates essential documentation links. Ensure linked docs are created/updated.
-      * `Mutual ('x')`: Suggests tightly coupled components needing coordinated development or careful sequencing.
-   * Review `doc_tracker.md`, mini-trackers (`*_module.md`), and `module_relationship_tracker.md` using `show-keys` and `show-dependencies` to confirm relationships.
-   * **MANDATORY: Deepen Understanding**: Use `read_file` to examine the *content* of files associated with dependencies ('<', '>', 'x', 'd'). Ask:
-      * *Why* does A depend on B? (Function call, data structure, conceptual prerequisite?)
-      * What *specific* parts of B are relevant to A?
-      * What is the *implication* for implementation order and refactoring?
-      State: "Deepened analysis of dependencies within `{target_area}`. Confirmed `{key_a}` requires `{key_b}` due to`{detailed_reason}`. Sequencing implication: Implement `{key_b}` task first."
-   * **CRITICAL WARNING**: Skipping or skimming this step undermines the entire Strategy phase. **The CRCT system relies on your thorough understanding of dependencies to create a viable roadmap.** Ignoring this will lead to an unsuccessful project.
-   * This understanding is essential for accurate decomposition and sequencing in subsequent steps.
+**Roadmap Unification & Phase Completion**
 
-8. **Decompose & Define HDTA Structure (Top-Down Planning, Atomic Tasks)**:
-   * **Directive**: Based on goals and dependency understanding (Step 7), refine Implementation Plans and decompose work into the smallest logical, actionable **`Strategy_*` or `Execution_*` Task Instructions (`*.md`)**. Each task should be executable with limited context.
-   * **Recursive Decomposition**: Break down work identified in Implementation Plans into the smallest logical, actionable units. The goal is to create **atomic Task Instructions (`*.md`)** with appropriate prefixes (`Strategy_*` or `Execution_*`) that can be executed independently by an LLM with a **limited context window**.
-   *       Each Task Instruction should represent a single, focused change (e.g., implement one function, modify a specific class method, update a section of documentation).
-   *   **Strategy Task Terminology**: Tasks involving planning, designing, defining, exploring, reviewing, or analyzing should typically be prefixed with `Strategy_*`.
-   *   **Execution Task Terminology**: Tasks involving implementing, creating (code/scripts), integrating, coding, writing (tests), or modifying files should typically be prefixed with `Execution_*`.
-      * Crucially, each Task Instruction file must explicitly list *only* the **minimal necessary context** (links to specific function definitions, relevant documentation keys/sections, data structures) required to complete *that specific task*, derived from your analysis. Avoid linking unnecessary files.
-   * **HDTA Document Creation/Update**:
-      * **Action**: For each required HDTA document (Domain Module, Implementation Plan, Task Instruction):
-        * **A. Existence Check (Mandatory)**: Check if the target file path already exists.
-        * **B. Decision & Rationale**:
-            * If exists and current content is sufficient/accurate for the plan: State "File `{file_path}` exists and is sufficient. No update needed." Proceed to next document/step.
-            * If exists but outdated/incomplete: State "File `{file_path}` exists but needs updates. Proceeding to update."
-            * If not exists: State "File `{file_path}` does not exist. Proceeding to create."
-        * **C. Create/Update**: If creation or update is needed, use `write_to_file`. Load the appropriate template from `cline_docs/templates/`. Fill in **all required sections** of the template with precise details based on your analysis.
-     * **Specific Document Content Directives**:
-        * **Domain Module (`*_module.md`)**: Required if planning involves a new major functional area or significant changes to an existing one. Use the template (`module_template.md`) to define its purpose, interfaces, and scope *within the context of the overall system and its dependencies*. If creating a new module, remember to manually add it to `system_manifest.md`.
-        Include relevant **Implementation Details** (key files, algorithms, models planned *for this module*). List associated Implementation Plans.
-        * **Implementation Plan (`implementation_plan_*.md`)**: Required for planning features or groups of related changes affecting multiple files. Use the template (`implementation_plan_template.md`) to outline the high-level approach, affected components (linking to their keys/docs), and major steps. Link this plan from the relevant Domain Module(s).
-        Detail **Design Decisions**, **Algorithms**, and **Data Flow** relevant *to this specific plan*. List the sequence of atomic **Task Instructions** required to fulfill this plan.
-        * **Task Instruction (`*.md`)**: Required for specific, actionable implementation steps within an Implementation Plan. Use the template (`task_template.md`) to detail the objective, **precise step-by-step instructions**, *minimal necessary context links*, **explicit `Dependencies` (Requires/Blocks task links)**, and expected output for *one atomic task*. Reference its parent Implementation Plan.
-   * **Linking (Mandatory)**:
-      * Add new Domain Modules to `system_manifest.md` registry.
-      * Link Implementation Plans from their parent Domain Module.
-      * Link Task Instructions from their parent Implementation Plan.
-      * Fill the `Dependencies` (Requires/Blocks) section in Task Instructions.
-   * **Add Missing Dependency Links**: While defining HDTA documents, if you identify crucial dependency links (especially code-to-doc) that were missed during Set-up/Maintenance and are necessary for context, use `add-dependency` to add them to the appropriate tracker (usually the mini-tracker for the code file). State your reasoning clearly.
+8.  **Unify and Review Roadmap for Cycle Goals.**
+    *   **Directive**: Consolidate the individually planned area roadmaps into a cohesive, unified roadmap for the *entire set of current cycle goals*. Review for inter-area consistency, dependency conflicts, and overall logical flow. Create the `roadmap_summary_[cycle_id].md`.
+    *   **Action (Load Minimal Summaries & Key Interfaces)**:
+        *   For each planned area (marked "[x] Planned" in `hierarchical_task_checklist_[cycle_id].md`), primarily review its Implementation Plan(s) which list task sequences, objectives, and affected components.
+        *   Identify tasks that represent interfaces or integration points *between areas*. For these, you might need to `read_file` their specific Task Instruction files to understand their inputs/outputs and ensure smooth transitions in the overall roadmap.
+        *   **Avoid reloading all individual task files unless a specific conflict or dependency requires deep inspection.**
+    *   **Action (Review and Resolve Inter-Area Issues for Roadmap Cohesion)**:
+        *   Check for logical flow and dependencies *between tasks in different areas*. Are there `Requires/Blocks` relationships that cross area boundaries? Are they correctly sequenced in the overall roadmap?
+        *   Ensure task granularity and instruction clarity are reasonably consistent across different areas.
+        *   Identify and resolve any conflicting instructions, timing issues, or resource contention between tasks in different (but related) areas. This might require targeted updates to specific Task Instructions or Implementation Plans (e.g., adding a `Requires` link to a task in another area's plan, adjusting sequence).
+        *   Use `show-dependencies --key <key_of_interfacing_task_or_file>` if inter-area code/doc dependencies are suspected to cause conflicts not caught by task-level links, ensuring roadmap integrity.
+        *   State: "Reviewed inter-area plans for roadmap unification. `[No major issues found / Identified issue: {description}, Resolution: {action_taken, e.g., updated Task_A.md to require Task_B.md from different area, adjusted sequence in roadmap_summary}]`."
+        *   **Consult Diagrams**: Review the auto-generated `project_overview_dependencies.mermaid` and relevant `module_..._dependencies.mermaid` files for a visual perspective on inter-area connections.
+        *   **Generate Focused Diagram (If Needed):** If specific inter-area connections are complex or conflicting, use `visualize-dependencies --key <interface_key1> --key <interface_key2> ... --output {memory_dir}/unification_focus_deps.md` to get a targeted view.
+        *   Analyze diagrams and textual dependencies to identify and resolve conflicts (update Tasks/Plans as needed). State: "Reviewed inter-area plans using Implementation Plans and dependency diagrams. `[Issues/Resolutions or No issues found]`."
+    *   **Action (Create Roadmap Summary Document)**:
+        *   Create `roadmap_summary_[cycle_id].md` (a new template will be provided for this). This document is the capstone of the cycle's roadmap.
+        *   This document should:
+            *   Clearly state the overall cycle goals that this roadmap addresses.
+            *   List all planned areas (from `hierarchical_task_checklist_[cycle_id].md`).
+            *   For each area, provide a concise summary of its main objectives and a high-level overview of its `Execution_*` task sequence (referencing its Implementation Plan(s)).
+            *   Present a unified, high-level execution sequence or flow diagram (e.g., using Mermaid syntax if appropriate, or a numbered list) that shows how tasks from different areas interleave or depend on each other. Highlight key milestones or integration points in the overall roadmap.
+            *   Note any critical path tasks across the entire unified roadmap.
+        *   `write_to_file` `roadmap_summary_[cycle_id].md`. State: "Created `roadmap_summary_[cycle_id].md` unifying plans for all cycle goals into a cohesive roadmap."
+        *   Update `hdta_review_progress_[session_id].md` for `roadmap_summary_[cycle_id].md` (Status: Created).
+    *   **Action (Update Checklist)**: Update `hierarchical_task_checklist_[cycle_id].md`: Add an entry like "[x] Roadmap Unified and Summarized for Cycle Goals."
+    *   **State**: "Overall project roadmap for current cycle goals unified, reviewed, and summarized in `roadmap_summary_[cycle_id].md`. Proceeding to final checks for Strategy Phase completion."
+    *   **Update `.clinerules` `[LAST_ACTION_STATE]`**: `next_action: "Final Checks and Exit Strategy Phase"`. Update `activeContext.md` to note completion of Step 8.
 
-9. **Determine Build Sequence (Bottom-Up Execution Order)**:
-   * **Directive**: Sequence **atomic Task Instructions** based on dependencies analyzed in Step 7.
-      * Identify foundational tasks/components: Those with no outgoing '<' dependencies within the current scope of work. These should generally be implemented first.
-      * Sequence subsequent tasks: Order subsequent tasks ensuring prerequisites are met according to your understanding of the interactions (not just the characters). For 'x' dependencies, plan for potentially iterative or closely coordinated implementation steps across the linked tasks.
+9.  **Final Checks and Exit Strategy Phase.**
+    *   **Directive**: Verify all conditions for exiting the Strategy phase (as defined at the beginning of this plugin) are met, ensuring the roadmap for the *current cycle goals* is complete and actionable.
+    *   **Action**: Meticulously perform the **Completion Criteria** check from the "Exiting Strategy Phase" section at the start of this document. Ensure every point is satisfied for the *current cycle goals*.
+    *   If all criteria are met:
+        *   Update `.clinerules` `[LAST_ACTION_STATE]` as specified in "Exiting Strategy Phase" (including `next_phase: "Execution"`).
+        *   If any genuine, novel insights were gained about the planning process or system that would benefit future work and are not covered by existing documentation, add them to the `[LEARNING_JOURNAL]` in `.clinerules`.
+        *   State: "Strategy phase complete. Unified roadmap for all cycle goals created, verified, and documented. All completion criteria met. Awaiting user action to proceed to Execution."
+        *   Pause and await user action.
+    *   If any criteria are NOT met:
+        *   State: "Strategy phase completion criteria not fully met. Missing: `[List specific unmet criteria and for which area/document if applicable]`. Must address these before exiting."
+        *   Determine the step needed to address the unmet criteria (e.g., return to Step 4 for a specific area to decompose more tasks, Step 6 to complete an overlooked `Strategy_*` task, Step 8 to fix unification issues or complete `roadmap_summary.md`).
+        *   Update `activeContext.md` with the list of unmet criteria and the plan to address them.
+        *   Update `.clinerules` `[LAST_ACTION_STATE]` with the current status (e.g., `last_action: "Strategy Phase Unification Incomplete - [Specific Issue]"`) and set `next_action` to point to the corrective step (e.g., `next_action: "Decompose Area into Atomic Tasks"` if more decomposition is needed for a specific area, or `next_action: "Unify and Review Roadmap"` if issues are in Step 8).
+        *   Provide a clear plan in your response to address the missing criteria.
 
-   * **Action**: Document the final sequence and rationale within the "Task Sequence / Build Order" section of the relevant Implementation Plan(s) or the module's `*_module.md` file. Update the Hierarchical Task Checklist to reflect sequence/readiness.
+## III. Mandatory Update Protocol (MUP) Additions (Strategy Plugin)
 
-10. **Prioritize Tasks within Sequence**:
-    * Within the determined build sequence, prioritize tasks based on:
-       * Urgency/importance defined in `activeContext.md`.
-       * Potential to unblock other tasks.
-       * Logical grouping of related work.
-    * Record the final prioritization order and explicit reasoning within the relevant Implementation Plan(s) or the module's `*_module.md` file.
+**After Core MUP steps (Section VI of Core Prompt):**
+*   **Save HDTA Documents**: Ensure ALL new or modified Domain Modules, Implementation Plans, and Task Instructions created/updated *during the last action or loop iteration* are saved using `write_to_file`. This should happen frequently (e.g., after each task definition, after updating a plan, after an area's HDTA is reviewed/created).
+*   **Update `system_manifest.md`**: If new Domain Modules were created/defined for an area and planning for that area is now considered complete (end of Step 7 for that area, or during Step 8 - Unification), ensure the manifest is updated to link/reference them. This can be batched to minimize frequent manifest reloading but must be done before exiting the phase.
+*   **Update Linking HDTA Docs**: Ensure Implementation Plans correctly link to their Task Instructions, and Domain Modules link to their Implementation Plans, reflecting changes *for the currently focused area or during unification*. This is often part of the `write_to_file` action for those documents. These links are vital for roadmap navigability.
+*   **Update Checklists & Trackers**:
+    *   `hdta_review_progress_[session_id].md`: Update to reflect the status of any documents reviewed/updated/created in the last action.
+    *   `hierarchical_task_checklist_[cycle_id].md`: Update to reflect the status of areas planned, tasks defined/completed/sequenced. This is the primary tracker for roadmap completion status.
+    *   `roadmap_summary_[cycle_id].md` (during Step 8): Ensure it is saved and its creation logged in `hdta_review_progress`.
+*   **Update `activeContext.md` with Strategy Outcomes**:
+    *   Summarize planning actions taken for the current area, or for the unification step (e.g., "Completed task definition for area X", "Sequenced tasks for area Y", "Unified roadmap started").
+    *   Reference key HDTA documents created/updated that form part of the roadmap.
+    *   Update `current_planning_area` and its status (e.g., `current_planning_area: "ModuleX"`, `current_planning_area_status: "Tasks Sequenced"`). Note any specific sub-objectives completed for the current area.
+    *   If exiting a loop for an area (end of Step 7), set `current_planning_area: "None"` and note its planning completion.
+*   **Update `.clinerules` `[LAST_ACTION_STATE]`**: Update `last_action` to reflect the last significant planning action. Update `current_phase` (will be "Strategy"). Update `next_action` to point to the correct subsequent major step in this plugin's workflow. `next_phase` remains "Strategy" until all completion criteria are met. The `[LEARNING_JOURNAL]` should only be updated with novel, reusable insights, not routine process logs.
 
-11. **Present Plan**: Summarize the planned work (referencing Implementation Plans), the determined sequence/prioritization, key HDTA documents created/updated, and confirm readiness to exit the Strategy phase. Ensure the Hierarchical Task Checklist is up-to-date.
+## IV. Quick Reference & Flowchart
 
-**Task Planning Flowchart**
+**Primary Goal**: Construct, refine, and maintain a comprehensive, dependency-aware, and actionable **project roadmap** for defined cycle goals, structured by HDTA.
+**Key Iterative Loop Steps (per Area within Cycle Goals):**
+0.  **Initialize Cycle**: Define overall goals for the entire Strategy engagement, set up main checklist with relevant areas for roadmap detailing.
+1.  **Select ONE Area** relevant to cycle goals. Define planning objectives for this area in `activeContext.md`.
+2.  **Focused Dependency Analysis** (for the selected area, deep understanding of 'why').
+3.  **Review/Create HDTA** (Manifest (context) → Module → Plan(s) for the area, minimal load, top-down, building roadmap segment).
+4.  **Decompose Area into Atomic Tasks** (`Strategy_*` or `Execution_*` with explicit minimal context links). Handle complexity with `Strategy_PlanSubComponent_*` tasks. These are the roadmap's leaves.
+5.  **Sequence & Prioritize Tasks** (for the area, document in Implementation Plan).
+6.  **Complete `Strategy_*` Tasks** (for refining this area's plan/roadmap segment).
+7.  **Check Loop**: If more areas for cycle goals, return to Step 1; else proceed to Unification (Step 8).
+
+**Post-Loop Steps:**
+8.  **Unify & Review Roadmap** (for all planned areas of the cycle goals), resolve inter-area conflicts, create `roadmap_summary_[cycle_id].md` (the unified roadmap document).
+9.  **Final Checks & Exit Strategy Phase** (verify all completion criteria for the roadmap).
+
+**Key Trackers & Outputs (Roadmap Artifacts):**
+*   `hdta_review_progress_[session_id].md`: Logs HDTA document review/creation status.
+*   `hierarchical_task_checklist_[cycle_id].md`: Tracks planning status of *areas within cycle goals* and their tasks (roadmap completion tracker).
+*   `roadmap_summary_[cycle_id].md`: The final unified roadmap document for the current cycle's goals.
+*   New/Updated HDTA: `*_module.md`, `implementation_plan_*.md`, `Strategy_*.md`, `Execution_*.md` files – these collectively form the detailed roadmap.
+
+**Key Inputs**: `activeContext.md` (overall cycle goals, current area focus, sub-objectives), `system_manifest.md`, `progress.md`, Verified Trackers (`show-keys`, `show-dependencies`), HDTA Templates.
+**Key Outputs**: Updated `activeContext.md`, new/updated HDTA documents (the roadmap), `roadmap_summary_[cycle_id].md`, updated `.clinerules`, session trackers.
+**MUP Additions**: Frequent saves of HDTA, update manifest/links (can be batched per area or during unification), update checklists and `activeContext.md` per action/loop, update `.clinerules` with precise `last_action` and `next_action`. `[LEARNING_JOURNAL]` for novel insights only.
+
 ```mermaid
-flowchart TD
-    A[Start Strategy Phase] --> B[Step 1: Analyze Deps Relevant to Goals];
-    B --> C{Step 2: Review/Create HDTA Top-Down & Use Trackers};
-    C --> D[Step 3: Assign Prefixes & Create Checklist];
-    D --> E[Step 4: Complete Strategy_* Tasks];
-    E --> F[Step 5: Confirm Goals];
-    F --> G[Step 6: Identify Targets];
-    G --> H[Step 7: Analyze Target Deps Deeply];
-    H --> I{Step 8: Decompose into<br>Atomic Execution_* Tasks};
-    I --> J[Step 9: Determine Build Sequence];
-    J --> K[Step 10: Prioritize Tasks];
-    K --> L[Step 11: Present Plan];
-    L --> M[Exit Strategy Phase];
+graph TD
+    AA[Start Strategy Phase: Read .clinerules, Load Plugin] --> S0[Step 0: Initialize Cycle & Define Overall Cycle Goals];
+    S0 --> S0A[Create/Update hdta_review_progress & hierarchical_task_checklist (with Areas for Roadmap)];
+    S0A --> S1[Step 1: Select ONE Area for Focused Planning (from Checklist)];
 
-    subgraph HDTA Management
-        C --> C1[Review/Update Manifest]
-        C1 --> C2[Review/Update Modules]
-        C2 --> C3[Review/Update Plans]
-        C3 --> C4[Review/Create Tasks]
-        I --> I1[Refine/Create Plans]
-        I1 --> I2[Create/Update Atomic Tasks<br>w/ Min Context]
-        D --> D1[Rename Files<br>Update Plan Lists]
-        J --> J1[Document Sequence in Plans/Modules]
-        K --> K1[Document Priority in Plans/Modules]
+    subgraph "Iterative Planning Loop (for each Area's Roadmap Segment)"
+        S1 --> S2[Step 2: Focused Dependency Analysis for Area (Deep Understanding)];
+        S2 --> S3[Step 3: Review/Create HDTA for Area (Top-Down, Minimal Load: Manifest CTX -> Module -> Plans)];
+        S3 --> S4[Step 4: Decompose Area into Atomic Tasks (Min Context, Task Templates, Strategy_PlanSubComponent for complexity)];
+        S4 --> S5[Step 5: Sequence & Prioritize Tasks for Area (Update Impl. Plan)];
+        S5 --> S6[Step 6: Complete Strategy_* Tasks for Area's Plan Refinement];
+        S6 --> S7{Step 7: More Areas for Cycle Goals? (Check Checklist)};
     end
 
-    subgraph Trackers
-        B --> T1[Use show-keys, show-dependencies]
-        H --> T2[Use show-dependencies, read_file]
-        I --> T3[Optional: add-dependency for missing links]
-        T1 --> C
-        T2 --> I
-    end
+    S7 -- Yes --> S1;
+    S7 -- No --> S8[Step 8: Unify & Review Roadmap for ALL Cycle Goals (Resolve Inter-Area Conflicts)];
+    S8 --> S8A[Create roadmap_summary.md (Unified Roadmap Document)];
+    S8A --> S9[Step 9: Final Checks & Exit Strategy Phase (Verify All Completion Criteria for Roadmap)];
+    S9 -- All Criteria Met --> Z[End Strategy Phase: Update .clinerules, Await User for Execution];
+    S9 -- Criteria NOT Met --> SC[Address Missing Criteria: Determine Corrective Step, Update .clinerules & activeContext.md, Loop back to e.g. S4, S6, S8];
+    SC --> S1
+    SC --> S4
+    SC --> S6
+    SC --> S8
 
-    subgraph Checklists
-       A --> CL1[Check/Create HDTA Review Tracker]
-       C --> CL2[Update HDTA Review Tracker]
-       I --> CL3[Update HDTA Review Tracker]
-       D --> CL4[Check/Create Hierarchical Task Checklist]
-       E --> CL5[Update Hierarchical Task Checklist]
-       J --> CL6[Update Hierarchical Task Checklist]
-       K --> CL7[Update Hierarchical Task Checklist]
-    end
+
+    S3 --> UDT[Update hdta_review_progress_tracker (for Manifest, Module, Plans)];
+    S4 --> UDT2[Update hdta_review_progress_tracker (for Tasks)];
+    S4 --> UHTC1[Update hierarchical_task_checklist (Tasks Defined)];
+    S5 --> UHTC2[Update hierarchical_task_checklist (Tasks Sequenced & Prioritized)];
+    S6 --> UHTC3[Update hierarchical_task_checklist (Strategy_* Tasks for Area Done)];
+    S7 -.-> UHTC4[Update hierarchical_task_checklist (Area Marked as Planned)];
+    S8A --> UDT3[Update hdta_review_progress_tracker (for roadmap_summary)];
+    S8A --> UHTC5[Update hierarchical_task_checklist (Roadmap Unified)];
+
+    %% MUP happens after each significant action / loop iteration as per Core Prompt & Plugin Additions
+    %% .clinerules [LAST_ACTION_STATE] updated with last_action & next_action.
+    %% activeContext.md updated with detailed progress, objectives for current area/step.
+    %% [LEARNING_JOURNAL] in .clinerules for novel insights only.
 ```
 
-## III. Strategy Plugin - Mandatory Update Protocol (MUP) Additions
-**After Core MUP steps (Section VI of Core Prompt):**
-* Save HDTA Documents: Ensure all new or modified Domain Modules, Implementation Plans, and Task Instructions created/updated during the action are saved using write_to_file.
-* Update system_manifest.md: If new Domain Modules were created/defined, add links/references in the manifest.
-* Update Linking HDTA Docs: Ensure Implementation Plans correctly link to their Task Instructions, and Domain Modules link to their Implementation Plans, reflecting any changes made.
-* Update Checklists: Update `hdta_review_progress_[session_id].md` (initialized in Step 2) and `hierarchical_task_checklist_[cycle_id].md` (initialized in Step 3) to reflect the status of documents reviewed/updated and tasks defined/completed/sequenced.
-* Update activeContext.md with Strategy Outcomes:
-   * Summarize the planning actions taken.
-   * Reference key HDTA documents created/updated.
-   * Note progress in task decomposition, sequencing, and prioritization, referencing the detailed plans.
-* Update .clinerules [LAST_ACTION_STATE]: Update to reflect the last significant planning action (e.g., "Completed Strategy_* tasks", "Defined Execution task sequence for Plan X", "Prioritized tasks for Module Y"). Use the specific exit state defined in Section I when the phase is complete.
-
-## IV. Quick Reference
-**Goal:** Create a comprehensive, dependency-aware implementation roadmap for targeted work, strictly following top-down HDTA processing.
-**Key Actions:**
-* Identify/Confirm Strategy Cycle Goals (Step 0).
-* Analyze Dependencies Relevant to Goals (Step 1).
-* Process HDTA Top-Down (Mandatory): Manifest -> Module -> Plan -> Task, relevant to goals (Step 2).
-* Use hdta_review_progress_[session_id].md to track review status (Initialized in Step 2).
-* Assign Strategy_* or Execution_* prefixes to tasks (Step 3).
-* Create hierarchical_task_checklist_[cycle_id].md to track planning progress (Initialized in Step 3).
-* Complete all Strategy_* tasks (Step 4).
-* Analyze dependencies deeply (show-dependencies, read_file) (Step 7).
-* Decompose goals into atomic Execution_* tasks (top-down planning) (Step 8).
-* Define HDTA documents strategically (Step 8).
-* Determine build sequence based on dependencies (bottom-up execution order) (Step 9).
-* Prioritize tasks within the sequence (Step 10).
-* Manually link HDTA documents and add missing functional dependencies via add-dependency if needed (Step 8).
-**Key Inputs:** activeContext.md, system_manifest.md, progress.md, Verified Trackers, Identified Cycle Goals.
-**Key Outputs:** Updated activeContext.md, new/updated HDTA documents (Modules, Plans, Tasks), updated .clinerules, session trackers (hdta_review_progress, hierarchical_task_checklist).
-**MUP Additions:** Save HDTA, update manifest/links, update checklists, update activeContext.md, update .clinerules.
-
-*Note: The Strategy phase is an exhaustive, in-depth process for the work targeted in the cycle. All planning for that work must be completed, with no gaps, before transitioning to Execution. This ensures a robust, dependency-aware roadmap.*
+*Note: This iterative Strategy phase is designed to be robust against context window limitations by forcing focused planning on manageable "areas" within the larger cycle goals, all contributing to the construction of a detailed and actionable project roadmap. Strict adherence to minimal context loading, scoped dependency analysis, and meticulous HDTA management at each step is paramount for success.*
+```

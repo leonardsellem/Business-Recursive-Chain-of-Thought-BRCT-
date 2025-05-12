@@ -16,10 +16,10 @@ from typing import Dict, List, Tuple, Any, Optional, Set
 from cline_utils.dependency_system.core.key_manager import (
     KeyInfo,
     load_global_key_map,
-    load_old_global_key_map, # Added
+    load_old_global_key_map,
     validate_key,
     sort_keys as sort_key_info, # Renamed for clarity - only use for List[KeyInfo]
-    get_key_from_path as get_key_string_from_path, # Renamed for clarity
+    get_key_from_path as get_key_string_from_path,
     sort_key_strings_hierarchically
 )
 from cline_utils.dependency_system.utils.path_utils import get_project_root, is_subpath, normalize_path, join_paths
@@ -29,9 +29,9 @@ from cline_utils.dependency_system.io.update_mini_tracker import get_mini_tracke
 from cline_utils.dependency_system.io.update_main_tracker import main_tracker_data
 from cline_utils.dependency_system.utils.cache_manager import cached, check_file_modified, invalidate_dependent_entries
 from cline_utils.dependency_system.core.dependency_grid import compress, create_initial_grid, decompress, validate_grid, PLACEHOLDER_CHAR, EMPTY_CHAR, DIAGONAL_CHAR
+from cline_utils.dependency_system.utils.tracker_utils import aggregate_all_dependencies, find_all_tracker_paths, read_tracker_file
 
 import logging
-
 logger = logging.getLogger(__name__)
 
 # --- Path Finding ---
@@ -71,63 +71,6 @@ def get_tracker_path(project_root: str, tracker_type: str = "main", module_path:
     else:
         raise ValueError(f"Unknown tracker type: {tracker_type}")
 
-# --- File Reading ---
-# Caching for read_tracker_file based on path and modification time.
-@cached("tracker_data",
-        key_func=lambda tracker_path:
-        f"tracker_data:{normalize_path(tracker_path)}:{(os.path.getmtime(tracker_path) if os.path.exists(tracker_path) else 0)}")
-def read_tracker_file(tracker_path: str) -> Dict[str, Any]:
-    """
-    Read a tracker file and parse its contents. Caches based on path and mtime.
-    Args:
-        tracker_path: Path to the tracker file
-    Returns:
-        Dictionary with keys, grid, and metadata, or empty structure on failure.
-    """
-    tracker_path = normalize_path(tracker_path)
-    if not os.path.exists(tracker_path):
-        logger.debug(f"Tracker file not found: {tracker_path}. Returning empty structure.")
-        return {"keys": {}, "grid": {}, "last_key_edit": "", "last_grid_edit": ""}
-    try:
-        with open(tracker_path, 'r', encoding='utf-8') as f: content = f.read()
-        keys = {}; grid = {}; last_key_edit = ""; last_grid_edit = ""
-        key_section_match = re.search(r'---KEY_DEFINITIONS_START---\n(.*?)\n---KEY_DEFINITIONS_END---', content, re.DOTALL | re.IGNORECASE)
-        if key_section_match:
-            key_section_content = key_section_match.group(1)
-            for line in key_section_content.splitlines():
-                line = line.strip()
-                if not line or line.lower().startswith("key definitions:"): continue
-                match = re.match(r'^([a-zA-Z0-9]+)\s*:\s*(.*)$', line)
-                if match:
-                    k, v = match.groups()
-                    if validate_key(k): keys[k] = normalize_path(v.strip())
-                    else: logger.warning(f"Skipping invalid key format in {tracker_path}: '{k}'")
-
-        grid_section_match = re.search(r'---GRID_START---\n(.*?)\n---GRID_END---', content, re.DOTALL | re.IGNORECASE)
-        if grid_section_match:
-            grid_section_content = grid_section_match.group(1)
-            lines = grid_section_content.strip().splitlines()
-            # Skip header line (X ...) if present
-            if lines and (lines[0].strip().upper().startswith("X ") or lines[0].strip() == "X"): lines = lines[1:]
-            for line in lines:
-                line = line.strip()
-                match = re.match(r'^([a-zA-Z0-9]+)\s*=\s*(.*)$', line)
-                if match:
-                    k, v = match.groups()
-                    if validate_key(k): grid[k] = v.strip()
-                    else: logger.warning(f"Grid row key '{k}' in {tracker_path} has invalid format. Skipping.")
-
-        last_key_edit_match = re.search(r'^last_KEY_edit\s*:\s*(.*)$', content, re.MULTILINE | re.IGNORECASE)
-        if last_key_edit_match: last_key_edit = last_key_edit_match.group(1).strip()
-        last_grid_edit_match = re.search(r'^last_GRID_edit\s*:\s*(.*)$', content, re.MULTILINE | re.IGNORECASE)
-        if last_grid_edit_match: last_grid_edit = last_grid_edit_match.group(1).strip()
-
-        logger.debug(f"Read tracker '{os.path.basename(tracker_path)}': {len(keys)} keys, {len(grid)} grid rows")
-        return {"keys": keys, "grid": grid, "last_key_edit": last_key_edit, "last_grid_edit": last_grid_edit}
-    except Exception as e:
-        logger.exception(f"Error reading tracker file {tracker_path}: {e}")
-        return {"keys": {}, "grid": {}, "last_key_edit": "", "last_grid_edit": ""}
-
 # --- File Writing ---
 def write_tracker_file(tracker_path: str,
                        key_defs_to_write: Dict[str, str], # Key string -> Path string map
@@ -151,12 +94,11 @@ def write_tracker_file(tracker_path: str,
     try:
         dirname = os.path.dirname(tracker_path); os.makedirs(dirname, exist_ok=True)
 
-        # <<< *** MODIFIED SORTING *** >>>
         # Sort key strings using standard sorting
         sorted_keys_list = sort_key_strings_hierarchically(list(key_defs_to_write.keys()))
 
         # --- Validate grid before writing ---
-        if not validate_grid(grid_to_write, sorted_keys_list): # Validation uses key strings
+        if not validate_grid(grid_to_write, sorted_keys_list):
             logger.error(f"Aborting write to {tracker_path} due to grid validation failure.")
             return False
 
@@ -181,7 +123,6 @@ def write_tracker_file(tracker_path: str,
 
         # --- Write Content ---
         with open(tracker_path, 'w', encoding='utf-8', newline='\n') as f:
-            # Write key definitions using the provided map and sorted list
             f.write("---KEY_DEFINITIONS_START---\n"); f.write("Key Definitions:\n")
             for key in sorted_keys_list:
                 f.write(f"{key}: {normalize_path(key_defs_to_write[key])}\n") # Ensure path uses forward slashes
@@ -207,7 +148,6 @@ def write_tracker_file(tracker_path: str,
         logger.error(f"I/O Error writing tracker file {tracker_path}: {e}", exc_info=True); return False
     except Exception as e:
         logger.exception(f"Unexpected error writing tracker file {tracker_path}: {e}"); return False
-
 
 # --- Backup ---
 def backup_tracker_file(tracker_path: str) -> str:
@@ -437,6 +377,14 @@ def _write_grid(file_obj: io.TextIOBase, sorted_keys_list: List[str], grid: Dict
             file_obj.write(f"{row_key} = {final_compressed_row}\n")
     file_obj.write("---GRID_END---\n")
 
+# --- Helper Function ---
+def _is_file_key(key_string: str) -> bool:
+    """Checks if a key string likely represents a file (ends with a digit)."""
+    if not key_string:
+        return False
+    # Simple check: does the key string end with one or more digits?
+    return bool(re.search(r'\d+$', key_string))
+
 # --- Mini Tracker Specific Functions ---
 def get_mini_tracker_path(module_path: str) -> str:
     """Gets the path to the mini tracker file using the function from mini_tracker_data."""
@@ -452,7 +400,7 @@ def get_mini_tracker_path(module_path: str) -> str:
 
 # create_mini_tracker: Adapt to use path_to_key_info
 def create_mini_tracker(module_path: str,
-                        path_to_key_info: Dict[str, KeyInfo], # <<< CHANGED
+                        path_to_key_info: Dict[str, KeyInfo],
                         relevant_keys_for_grid: List[str], # Key strings needed in grid
                         new_key_strings_for_this_tracker: Optional[List[str]] = None): # Relevant NEW key STRINGS
     """Creates a new mini-tracker file with the template."""
@@ -461,10 +409,9 @@ def create_mini_tracker(module_path: str,
     marker_start, marker_end = mini_tracker_info["markers"]
     norm_module_path = normalize_path(module_path)
     module_name = os.path.basename(norm_module_path)
-    output_file = get_mini_tracker_path(norm_module_path) # Use helper
+    output_file = get_mini_tracker_path(norm_module_path)
 
     # Definitions include keys relevant to the grid, get paths from global map
-    # <<< *** MODIFIED LOGIC *** >>>
     keys_to_write_defs: Dict[str, str] = {}
     for k_str in relevant_keys_for_grid:
          # Find the KeyInfo object associated with this key string
@@ -478,17 +425,16 @@ def create_mini_tracker(module_path: str,
               logger.warning(f"Key string '{k_str}' needed for mini-tracker '{os.path.basename(output_file)}' definitions not found in global path_to_key_info.")
 
     # Ensure module's own key is included if it exists
-    # <<< *** MODIFIED LOGIC *** >>>
-    module_key_string = get_key_string_from_path(norm_module_path, path_to_key_info) # Use updated function name
+    module_key_string = get_key_string_from_path(norm_module_path, path_to_key_info)
     if module_key_string:
         if module_key_string not in relevant_keys_for_grid:
-            relevant_keys_for_grid.append(module_key_string) # Add if missing
+            relevant_keys_for_grid.append(module_key_string)
         if module_key_string not in keys_to_write_defs:
              keys_to_write_defs[module_key_string] = norm_module_path
 
     # Grid dimensions are based on relevant_keys_for_grid
     # <<< *** ASSUME relevant_keys_for_grid IS ALREADY SORTED HIERARCHICALLY *** >>>
-    sorted_relevant_keys_list = relevant_keys_for_grid # Use directly
+    sorted_relevant_keys_list = relevant_keys_for_grid
     try:
         dirname = os.path.dirname(output_file); os.makedirs(dirname, exist_ok=True)
         with open(output_file, "w", encoding="utf-8", newline='\n') as f:
@@ -499,7 +445,6 @@ def create_mini_tracker(module_path: str,
             # --- Write the tracker data section ---
             _write_key_definitions(f, keys_to_write_defs, sorted_relevant_keys_list)
             f.write("\n")
-            # <<< *** MODIFIED metadata message *** >>>
             last_key_edit_msg = f"Assigned keys: {', '.join(new_key_strings_for_this_tracker)}" if new_key_strings_for_this_tracker else (f"Initial key: {module_key_string}" if module_key_string else "Initial creation")
             f.write(f"last_KEY_edit: {last_key_edit_msg}\n")
             f.write(f"last_GRID_edit: Initial creation\n\n")
@@ -557,7 +502,6 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
 
         logger.info(f"Main tracker update for {len(relevant_keys_for_grid)} modules.")
 
-        # <<< MODIFIED: Conditional Aggregation >>>
         if not force_apply_suggestions:
             # Run aggregation ONLY if not forcing (i.e., called from analyze-project)
             logger.debug("Performing main tracker aggregation...")
@@ -567,7 +511,6 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
                 )
                 logger.debug("Converting aggregated path results to key string suggestions...")
                 for src_path, targets in aggregated_result_paths.items():
-                     # ... (aggregation result conversion - unchanged) ...
                      src_key_info = path_to_key_info.get(src_path); src_key_string = src_key_info.key_string if src_key_info else None
                      if not src_key_string or src_key_string not in final_key_defs: continue
                      for target_path, dep_char in targets:
@@ -591,24 +534,20 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
                          logger.warning(f"Source key '{src_key}' from forced suggestion not found in main tracker keys. Skipping.")
             else:
                  logger.warning("force_apply=True for main tracker but no suggestions provided.")
-        # <<< END MODIFIED >>>
-        pass # End of main tracker block
+        pass
 
     elif tracker_type == "doc":
         output_file = doc_tracker_data["get_tracker_path"](project_root)
         # Filter returns Dict[norm_path, KeyInfo] for items under doc roots
         # This map includes KeyInfo for both files and directories within doc roots
         filtered_doc_info_map: Dict[str, KeyInfo] = doc_tracker_data["file_inclusion"](project_root, path_to_key_info)
-
         # Definitions include ALL filtered items (files and directories)
         final_key_defs = {info.key_string: info.norm_path for info in filtered_doc_info_map.values()}
         # Grid keys MUST match the definition keys
         relevant_keys_for_grid = list(final_key_defs.keys()) # Use all keys from definitions
-
         logger.info(f"Doc tracker update. Definitions: {len(final_key_defs)} items. Grid keys: {len(relevant_keys_for_grid)}.")
 
         # --- Filter semantic suggestions ---
-
         if suggestions:
              logger.debug("Pre-filtering semantic suggestions for relevance...")
              for src_key, targets in suggestions.items():
@@ -618,8 +557,8 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
                        if valid_targets: final_suggestions_to_apply[src_key].extend(valid_targets)
         pass # Ensures fall-through is prevented
 
+    # --- Mini Tracker Specific Logic ---
     elif tracker_type == "mini":
-        # --- Mini Tracker Specific Logic ---
         if not file_to_module: logger.error("file_to_module mapping required for mini-tracker updates."); return
         if not path_to_key_info: logger.warning("Global path_to_key_info is empty."); return
         # Determine module path from the output file suggestion
@@ -658,8 +597,7 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
         # Scan Existing Grid (uses existing_grid_mini read above)
         if tracker_exists_mini and existing_grid_mini and existing_key_defs_mini:
         # 3. Scan Existing Grid for Relevant Foreign Keys
-
-            logger.debug(f"Scanning existing grid of '{os.path.basename(output_file)}' for relevant foreign keys...")
+            logger.debug(f"Scanning existing grid of '{os.path.basename(output_file)}' for relevant foreign keys (File-File links only)...") # Updated log message
             old_keys_list_mini = sort_key_strings_hierarchically(list(existing_key_defs_mini.keys()))
             old_key_to_idx_mini = {k: i for i, k in enumerate(old_keys_list_mini)}
             for row_key, compressed_row in existing_grid_mini.items():
@@ -676,21 +614,33 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
                         col_key = old_keys_list_mini[col_idx]
                         if row_key == col_key: continue # Skip diagonal
                         col_is_internal = col_key in internal_keys_set
-                        dep_priority = get_priority(dep_char)
-                        # Condition: Link involves one internal and one external key, and priority is >= 2
-                        if dep_priority >= min_positive_priority:
-                            if row_is_internal and not col_is_internal:
-                                if col_key not in relevant_keys_strings_set:
-                                    logger.debug(f"  Adding persisted foreign key '{col_key}' due to link from internal '{row_key}' ('{dep_char}')")
-                                    relevant_keys_strings_set.add(col_key)
-                            elif not row_is_internal and col_is_internal:
-                                if row_key not in relevant_keys_strings_set:
-                                     logger.debug(f"  Adding persisted foreign key '{row_key}' due to link to internal '{col_key}' ('{dep_char}')")
-                                     relevant_keys_strings_set.add(row_key)
+
+                        # --- Check if relationship should trigger foreign key persistence ---
+                        # Condition 1: Not an 'n' relationship
+                        if dep_char != 'n':
+                            try:
+                                dep_priority = get_priority(dep_char)
+                                # Condition2: Link involves one internal and one external key,
+                                # AND the priority meets the threshold for relevance (e.g., 's' or higher)
+                                if dep_priority >= min_positive_priority:
+                                    # Condition 3: Both keys represent files
+                                    if _is_file_key(row_key) and _is_file_key(col_key):
+                                        # Condition 4: One key is internal, the other is external
+                                        if row_is_internal and not col_is_internal:
+                                            if col_key not in relevant_keys_strings_set:
+                                                logger.debug(f"  Adding persisted foreign FILE key '{col_key}' due to link from internal FILE '{row_key}' ('{dep_char}')")
+                                                relevant_keys_strings_set.add(col_key)
+                                        elif not row_is_internal and col_is_internal:
+                                            if row_key not in relevant_keys_strings_set:
+                                                 logger.debug(f"  Adding persisted foreign FILE key '{row_key}' due to link to internal FILE '{col_key}' ('{dep_char}')")
+                                                 relevant_keys_strings_set.add(row_key)
+                                    else: logger.debug(f" Skipping link ({row_key}, {col_key}): Not a file-file relationship.") # Optional detailed logging
+                            except KeyError:
+                                # Ignore characters not in the priority map during this scan
+                                pass
 
                 except Exception as e:
                     logger.warning(f"Scan Existing: Error processing row '{row_key}': {e}. Skipping row scan.")
-
             logger.debug(f"Mini Tracker ({module_key_string}): Relevant keys after scanning existing grid: {len(relevant_keys_strings_set)}")
 
         # 4. Process Incoming Suggestions
@@ -700,7 +650,7 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
         all_excluded_abs = excluded_dirs_abs.union(excluded_files_abs)
         abs_doc_roots: Set[str] = {normalize_path(os.path.join(project_root, p)) for p in config.get_doc_directories()}
         # Identify relevant external keys based on suggestions
-        raw_suggestions = suggestions if suggestions else {} # Use input suggestions
+        raw_suggestions = suggestions if suggestions else {}
         if raw_suggestions:
             logger.debug("Processing incoming suggestions to augment relevant keys...")
             for src_key_str, deps in raw_suggestions.items():
@@ -733,7 +683,7 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
 
             logger.debug(f"Mini Tracker ({module_key_string}): Relevant keys after processing suggestions: {len(relevant_keys_strings_set)}")
 
-        # <<< START MODIFICATION: Validate relevant keys against provided map >>>
+        # Validate relevant keys against provided map
         validated_relevant_keys_set = set()
         invalid_keys_found = set()
         logger.debug(f"Validating {len(relevant_keys_strings_set)} relevant keys against provided path_to_key_info map...")
@@ -758,8 +708,6 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
             validated_relevant_keys_set -= keys_to_explicitly_remove # Use set difference
             if keys_actually_removed_explicitly:
                  logger.info(f"Mini update ({os.path.basename(output_file)}): Explicitly removing keys as requested: {keys_actually_removed_explicitly}")
-
-        # <<< END MODIFICATION >>>
 
         # 5. Finalize relevant keys and definitions based on the *validated* set
         # Use the validated set to build the final lists and definitions
@@ -800,13 +748,12 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
                      # Path should exist if key is in relevant_keys_for_grid, but check defensively
                      if not target_info or target_info.norm_path in all_excluded_abs: continue
                      valid_targets_for_source.append((target_key_str, dep_char))
-                     # <<< MOVED LOG STATEMENT HERE >>>
+
                      logger.debug(f"Mini filter: Adding suggestion {src_key_str} -> {target_key_str} ('{dep_char}')")
 
                  if valid_targets_for_source:
                      filtered_suggestions_for_apply[src_key_str].extend(valid_targets_for_source)
 
-            # <<< Log statement REMOVED from here >>>
             final_suggestions_to_apply = filtered_suggestions_for_apply # Replace original with filtered
 
     else:
@@ -821,7 +768,7 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
     existing_key_defs = {}; existing_grid = {}; current_last_key_edit = ""; current_last_grid_edit = ""; lines = []
     tracker_exists = os.path.exists(output_file)
     if tracker_exists:
-        try: # Read logic unchanged
+        try:
             with open(output_file, "r", encoding="utf-8") as f: lines = f.readlines()
             existing_key_defs = _read_existing_keys(lines); existing_grid = _read_existing_grid(lines)
             last_key_edit_line = next((l for l in lines if l.strip().lower().startswith("last_key_edit")), None)
@@ -832,7 +779,6 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
         except Exception as e: logger.error(f"Failed read existing tracker {output_file}: {e}. Proceeding cautiously.", exc_info=True); existing_key_defs={}; existing_grid={}; current_last_key_edit=""; current_last_grid_edit=""; lines=[]; tracker_exists=False
 
     # --- Create tracker if it doesn't exist ---
-    # Moved the read logic earlier, now just check the flag/state
     if not tracker_exists:
         logger.info(f"Tracker file not found: {output_file}. Creating new file.")
         created_ok = False
@@ -926,7 +872,7 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
         temp_decomp_grid[row_key] = row_list
 
     # <<< --- COMMON Structural Dependency Calculation & Application --- >>>
-    structural_deps = defaultdict(dict) # Initialize here
+    structural_deps = defaultdict(dict)
     if tracker_type == "doc" or tracker_type == "mini":
         # Build Key String -> KeyInfo map for keys in THIS grid
         key_string_to_info_local = {
@@ -944,10 +890,8 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
                     if row_key == col_key: continue
                     col_info = key_string_to_info_local.get(col_key)
                     if not col_info: continue
-
                     # Skip if already processed (due to reciprocal setting)
                     if structural_deps.get(row_key, {}).get(col_key) is not None: continue
-
                     # Check parent-child relationship
                     if is_subpath(col_info.norm_path, row_info.norm_path):
                         structural_deps[row_key][col_key] = 'x'
@@ -985,7 +929,6 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
             old_key_string_to_path = {info.key_string: info.norm_path for info in old_path_to_key_info.values()}
             logger.info("Using 'global_key_map_old.json' as the primary source for old key-path mapping.")
             using_old_map = True
-            # Optional sanity check
             if len(old_key_string_to_path) != len(old_path_to_key_info):
                  logger.warning("Potential duplicate key strings detected in 'global_key_map_old.json'. Mapping might be ambiguous.")
         else:
@@ -1085,6 +1028,175 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
     if old_key_string_to_path is not None: log_method = '_old.json map' if using_old_map else 'Tracker Fallback'
     logger.info(f"Finished copying old grid values. Method: {log_method}. Copied: {copied_values_count}, Skipped (No Old Path): {skipped_due_to_no_old_path}, Skipped (Path Gone): {skipped_due_to_path_gone}, Skipped (Target Filled): {skipped_due_to_non_placeholder}, RowErrors={row_processing_errors}")
 
+    # Import Established Relationships for Foreign Keys (Mini-Trackers Only)
+    imported_rels_count = 0
+    auto_set_n_count = 0 # Counter for automatic 'n' settings
+    if tracker_type == "mini" and module_path: # Ensure we have module_path
+        logger.debug(f"Mini Tracker ({module_key_string}): Importing/Resolving relationships for foreign key pairs...")
+
+        # Identify foreign keys in the current grid
+        foreign_keys_in_grid: Dict[str, KeyInfo] = {} # key_string -> KeyInfo
+        for key_str in final_sorted_keys_list:
+            key_info = path_to_key_info.get(final_key_defs.get(key_str))
+            # Check if key_info exists and if its parent is different from the current module
+            if key_info and key_info.parent_path != module_path:
+                foreign_keys_in_grid[key_str] = key_info
+
+        foreign_key_list = list(foreign_keys_in_grid.keys())
+        logger.debug(f"Found {len(foreign_key_list)} foreign keys in grid: {foreign_key_list}") # Uncomment for verbose logging
+
+        # Get doc directories for checking home tracker type
+        abs_doc_roots_set = {normalize_path(os.path.join(project_root, p)) for p in config.get_doc_directories()}
+
+        # Helper function to check if a path is within ANY doc root
+        def is_path_in_doc_roots(item_path: str) -> bool:
+            norm_item_path = normalize_path(item_path)
+            # Check if item path is equal to or a subpath of any doc root
+            return any(is_subpath(norm_item_path, doc_root) or norm_item_path == doc_root
+                       for doc_root in abs_doc_roots_set)
+
+        # Define character sets for clarity in conditions
+        OVERWRITABLE_CHARS = {'p', 's', 'S', 'n'}
+        POSITIVE_IMPORT_CHARS = {'<', '>', 'x', 'd'}
+
+        # Iterate through unique pairs of foreign keys
+        for i in range(len(foreign_key_list)):
+            fk1_str = foreign_key_list[i]
+            info1 = foreign_keys_in_grid[fk1_str] # We know this key exists in the map
+            fk1_idx = final_key_to_idx[fk1_str] # Get index in the current (final) grid
+
+            for j in range(i + 1, len(foreign_key_list)):
+                fk2_str = foreign_key_list[j]
+                info2 = foreign_keys_in_grid[fk2_str] # We know this key exists in the map
+                fk2_idx = final_key_to_idx[fk2_str] # Get index in the current (final) grid
+
+                # Get current characters from the mini-tracker's temp grid
+                current_char_12 = temp_decomp_grid[fk1_str][fk2_idx]
+                current_char_21 = temp_decomp_grid[fk2_str][fk1_idx]
+
+                # Determine the shared home tracker based on parent paths
+                home_tracker_path: Optional[str] = None
+                parent1 = info1.parent_path
+                parent2 = info2.parent_path
+
+                is_fk1_doc = is_path_in_doc_roots(info1.norm_path)
+                is_fk2_doc = is_path_in_doc_roots(info2.norm_path)
+
+                if is_fk1_doc and is_fk2_doc:
+                    # Case 1: Both items are documentation items -> Home is doc_tracker.md
+                    home_tracker_path = get_tracker_path(project_root, tracker_type="doc")
+                    logger.debug(f"  Pair ({fk1_str}, {fk2_str}): Both in doc roots. Home: Doc Tracker.")
+                elif not is_fk1_doc and not is_fk2_doc and parent1 and parent1 == parent2:
+                    # Case 2: Both items are code items AND share the same direct parent directory
+                    if parent1 != module_path: # Ensure shared parent isn't the current module itself
+                        home_tracker_path = get_tracker_path(project_root, tracker_type="mini", module_path=parent1)
+                        logger.debug(f"  Pair ({fk1_str}, {fk2_str}): Shared code parent '{parent1}'. Home: Mini Tracker.")
+                # else: # Case 3: Mix or different parents -> No single shared home tracker
+                    logger.debug(f"  Pair ({fk1_str}, {fk2_str}): No shared home tracker identified.")
+                    home_tracker_path = None
+
+                # Attempt to read relationship from home tracker
+                home_char_12 = PLACEHOLDER_CHAR
+                home_char_21 = PLACEHOLDER_CHAR
+                found_home_rel_12 = False # Flag if non-'p' relation was found
+                found_home_rel_21 = False
+
+                if home_tracker_path and os.path.exists(home_tracker_path):
+                    logger.debug(f"  Reading home tracker: {os.path.basename(home_tracker_path)}")
+                    home_data = read_tracker_file(home_tracker_path)
+                    home_keys = home_data.get("keys", {})
+                    home_grid = home_data.get("grid", {})
+
+                    # Check if BOTH keys exist in the home tracker's definitions
+                    if home_keys and home_grid and fk1_str in home_keys and fk2_str in home_keys:
+                        # Get sorted keys and index map for the home tracker
+                        home_keys_list = sort_key_strings_hierarchically(list(home_keys.keys()))
+                        home_key_to_idx = {k: idx for idx, k in enumerate(home_keys_list)}
+                        home_fk1_idx = home_key_to_idx.get(fk1_str)
+                        home_fk2_idx = home_key_to_idx.get(fk2_str)
+
+                        # Ensure indices were found (should be if keys are in map)
+                        if home_fk1_idx is not None and home_fk2_idx is not None:
+                            # Extract char 1->2 safely
+                            row1_comp = home_grid.get(fk1_str)
+                            if row1_comp:
+                                try:
+                                    row1_decomp = decompress(row1_comp)
+                                    if len(row1_decomp) == len(home_keys_list) and home_fk2_idx < len(row1_decomp):
+                                        extracted_char = row1_decomp[home_fk2_idx]
+                                        home_char_12 = extracted_char # Store extracted char
+                                        if extracted_char != PLACEHOLDER_CHAR:
+                                            found_home_rel_12 = True # Mark non-'p' found
+                                except Exception as e: logger.warning(f"  Error decompressing home row {fk1_str}: {e}")
+
+                            # Extract char 2->1 safely
+                            row2_comp = home_grid.get(fk2_str)
+                            if row2_comp:
+                                try:
+                                    row2_decomp = decompress(row2_comp)
+                                    if len(row2_decomp) == len(home_keys_list) and home_fk1_idx < len(row2_decomp):
+                                        extracted_char = row2_decomp[home_fk1_idx]
+                                        home_char_21 = extracted_char # Store extracted char
+                                        if extracted_char != PLACEHOLDER_CHAR:
+                                            found_home_rel_21 = True # Mark non-'p' found
+                                except Exception as e: logger.warning(f"  Error decompressing home row {fk2_str}: {e}")
+                        # else: logger.warning(f"  Keys {fk1_str} or {fk2_str} missing index in home tracker {os.path.basename(home_tracker_path)}.")
+                    # else: logger.debug(f"  Keys {fk1_str} or {fk2_str} not found in home tracker {os.path.basename(home_tracker_path)} keys/grid.")
+                # elif home_tracker_path: logger.debug(f"  Home tracker not found or empty: {home_tracker_path}")
+
+                # --- Determine Final Characters and Apply ---
+                final_char_12 = current_char_12 # Start with current value
+                final_char_21 = current_char_21
+                changed_12 = False
+                changed_21 = False
+
+                # --- Determine final value for 1 -> 2 ---
+                # Rule 1: Import positive relation from home over overwritable chars
+                if current_char_12 in OVERWRITABLE_CHARS and home_char_12 in POSITIVE_IMPORT_CHARS:
+                    logger.debug(f"    Importing positive {fk1_str}->{fk2_str}: '{home_char_12}' over existing '{current_char_12}' from {os.path.basename(home_tracker_path or 'N/A')}")
+                    final_char_12 = home_char_12
+                # Rule 1b: Import 'n' from home only over p/s/S
+                elif current_char_12 in ('p', 's', 'S') and home_char_12 == 'n':
+                    logger.debug(f"    Importing 'n' {fk1_str}->{fk2_str}: '{home_char_12}' over existing '{current_char_12}' from {os.path.basename(home_tracker_path or 'N/A')}")
+                    final_char_12 = home_char_12
+                # Rule 2: Explicitly set 'n' if current is 'p' AND relationship wasn't *found defined* in home
+                elif current_char_12 == PLACEHOLDER_CHAR and not found_home_rel_12:
+                    logger.info(f"  Auto-setting {fk1_str}->{fk2_str} to 'n' (no defined relationship found in home tracker).")
+                    final_char_12 = 'n'
+                # --- If none of the above, final_char_12 remains current_char_12 ---
+
+                # --- Determine final value for 2 -> 1 ---
+                # Rule 1: Import positive relation from home over overwritable chars
+                if current_char_21 in OVERWRITABLE_CHARS and home_char_21 in POSITIVE_IMPORT_CHARS:
+                    logger.debug(f"    Importing positive {fk2_str}->{fk1_str}: '{home_char_21}' over existing '{current_char_21}' from {os.path.basename(home_tracker_path or 'N/A')}")
+                    final_char_21 = home_char_21
+                 # Rule 1b: Import 'n' from home only over p/s/S
+                elif current_char_21 in ('p', 's', 'S') and home_char_21 == 'n':
+                    logger.debug(f"    Importing 'n' {fk2_str}->{fk1_str}: '{home_char_21}' over existing '{current_char_21}' from {os.path.basename(home_tracker_path or 'N/A')}")
+                    final_char_21 = home_char_21
+                # Rule 2: Explicitly set 'n' if current is 'p' AND relationship wasn't *found defined* in home
+                elif current_char_21 == PLACEHOLDER_CHAR and not found_home_rel_21:
+                    logger.info(f"  Auto-setting {fk2_str}->{fk1_str} to 'n' (no defined relationship found in home tracker).")
+                    final_char_21 = 'n'
+                # --- If none of the above, final_char_21 remains current_char_21 ---
+
+                # --- Apply changes if the final determined character is different from the current one ---
+                if temp_decomp_grid[fk1_str][fk2_idx] != final_char_12:
+                    temp_decomp_grid[fk1_str][fk2_idx] = final_char_12
+                    imported_rels_count += 1 # Count any cell change
+                    changed_12 = True
+
+                if temp_decomp_grid[fk2_str][fk1_idx] != final_char_21:
+                    temp_decomp_grid[fk2_str][fk1_idx] = final_char_21
+                    imported_rels_count += 1
+                    changed_21 = True
+
+                # Log once per pair if any change occurred
+                if changed_12 or changed_21:
+                     logger.info(f"  Updated relationship for ({fk1_str}, {fk2_str}) based on home tracker / auto-n rule. New: ('{final_char_12}', '{final_char_21}')")
+
+        logger.info(f"Finished importing/resolving relationships. Updated cell count: {imported_rels_count}.")
+
     # --- Apply Suggestions (Includes Reciprocal/Mutual Logic & Modified Conflict Handling) ---
     suggestion_applied = False
     # Initialize variables to store details for the specific manual update message
@@ -1146,10 +1258,8 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
                              char_in_reverse = reverse_decomp_row[row_idx]
                              # Check if the reverse direction ALSO has the SAME directional char
                              if char_in_reverse == dep_char:
-                                 # <<< RESTORE MUTUAL LOGS >>>
                                  logger.debug(f"Mutual: Merging {target_key} -> {source_key} to 'x' due to matching '{dep_char}' dependencies.")
                                  logger.debug(f"Mutual: Merging {source_key} -> {target_key} to 'x' due to matching '{dep_char}' dependencies.")
-                                 # <<< END RESTORE >>>
                                  final_char_to_apply = 'x'
                                  # Update the reverse direction in the grid immediately
                                  reverse_decomp_row[row_idx] = 'x'
@@ -1224,31 +1334,226 @@ def update_tracker(output_file_suggestion: str, # Path suggestion (may be ignore
 
             # temp_decomp_grid[row_key] = current_decomp_row # Update the row in the temp grid
 
-    # --- Update Grid Edit Timestamp (REVISED LOGIC ORDER) ---
-    # Start with the current value read from the file (or the creation message)
+    # Import Established Relationships for Native-Foreign Pairs (Mini-Trackers Only)
+    native_foreign_import_count = 0
+    if tracker_type == "mini" and module_path: # Ensure we have module_path
+        logger.debug(f"Mini Tracker ({module_key_string}): Importing established relationships for Native <-> Foreign pairs...")
+
+        # Identify native and foreign keys based on parent path
+        native_keys: Dict[str, KeyInfo] = {}
+        foreign_keys: Dict[str, KeyInfo] = {}
+        for key_str in final_sorted_keys_list:
+            key_info = path_to_key_info.get(final_key_defs.get(key_str))
+            if key_info:
+                if key_info.parent_path == module_path or key_info.norm_path == module_path:
+                    native_keys[key_str] = key_info
+                else:
+                    foreign_keys[key_str] = key_info
+
+        native_key_list = list(native_keys.keys())
+        foreign_key_list = list(foreign_keys.keys())
+
+        if native_key_list and foreign_key_list:
+            logger.debug(f"Checking {len(native_key_list)} native keys against {len(foreign_key_list)} foreign keys.")
+
+            # Get doc directories for checking home tracker type
+            abs_doc_roots_set = {normalize_path(os.path.join(project_root, p)) for p in config.get_doc_directories()}
+            def is_path_in_doc_roots(item_path: str) -> bool:
+                norm_item_path = normalize_path(item_path)
+                return any(is_subpath(norm_item_path, doc_root) or norm_item_path == doc_root for doc_root in abs_doc_roots_set)
+
+            # Iterate through each native key
+            for native_key_str in native_key_list:
+                native_key_info = native_keys[native_key_str]
+                native_key_idx = final_key_to_idx[native_key_str] # Index in the CURRENT grid
+
+                # Iterate through each foreign key
+                for foreign_key_str in foreign_key_list:
+                    foreign_key_info = foreign_keys[foreign_key_str]
+                    foreign_key_idx = final_key_to_idx[foreign_key_str] # Index in the CURRENT grid
+
+                    # Determine the home tracker of the FOREIGN key
+                    home_tracker_path: Optional[str] = None
+                    foreign_parent = foreign_key_info.parent_path
+                    is_foreign_doc = is_path_in_doc_roots(foreign_key_info.norm_path)
+
+                    if is_foreign_doc:
+                        home_tracker_path = get_tracker_path(project_root, tracker_type="doc")
+                    elif foreign_parent: # Foreign key is code, not doc
+                        home_tracker_path = get_tracker_path(project_root, tracker_type="mini", module_path=foreign_parent)
+                    # else: # Foreign key has no parent? Should not happen based on key generation.
+
+                    if not home_tracker_path:
+                        # logger.warning(f"Could not determine home tracker for foreign key {foreign_key_str}. Skipping import.")
+                        continue
+
+                    # Attempt to read relationship from home tracker
+                    home_char_native_foreign = PLACEHOLDER_CHAR # native -> foreign
+                    home_char_foreign_native = PLACEHOLDER_CHAR # foreign -> native
+
+                    if os.path.exists(home_tracker_path):
+                        home_data = read_tracker_file(home_tracker_path)
+                        home_keys = home_data.get("keys", {})
+                        home_grid = home_data.get("grid", {})
+
+                        # Check if BOTH keys exist in the home tracker's definitions
+                        if home_keys and home_grid and native_key_str in home_keys and foreign_key_str in home_keys:
+                            home_keys_list = sort_key_strings_hierarchically(list(home_keys.keys()))
+                            home_key_to_idx = {k: idx for idx, k in enumerate(home_keys_list)}
+                            home_native_idx = home_key_to_idx.get(native_key_str)
+                            home_foreign_idx = home_key_to_idx.get(foreign_key_str)
+
+                            if home_native_idx is not None and home_foreign_idx is not None:
+                                # Extract native -> foreign char safely
+                                row_native_comp = home_grid.get(native_key_str)
+                                if row_native_comp:
+                                    try:
+                                        row_native_decomp = decompress(row_native_comp)
+                                        if len(row_native_decomp) == len(home_keys_list) and home_foreign_idx < len(row_native_decomp):
+                                            home_char_native_foreign = row_native_decomp[home_foreign_idx]
+                                    except Exception as e: logger.warning(f"  Error decompressing home row {native_key_str}: {e}")
+                                # Extract foreign -> native char safely
+                                row_foreign_comp = home_grid.get(foreign_key_str)
+                                if row_foreign_comp:
+                                     try:
+                                        row_foreign_decomp = decompress(row_foreign_comp)
+                                        if len(row_foreign_decomp) == len(home_keys_list) and home_native_idx < len(row_foreign_decomp):
+                                            home_char_foreign_native = row_foreign_decomp[home_native_idx]
+                                     except Exception as e: logger.warning(f"  Error decompressing home row {foreign_key_str}: {e}")
+                        # else: logger.debug(f"    Keys {native_key_str} or {foreign_key_str} missing index in home tracker {os.path.basename(home_tracker_path)}.")
+                    # else: logger.debug(f"    Keys {native_key_str} or {foreign_key_str} not found in home tracker {os.path.basename(home_tracker_path)} keys/grid.")
+
+                    # --- Compare priorities and update the CURRENT mini-tracker's temp grid ---
+                    # Get current characters from the mini-tracker's temp grid
+                    current_char_native_foreign = temp_decomp_grid[native_key_str][foreign_key_idx]
+                    current_char_foreign_native = temp_decomp_grid[foreign_key_str][native_key_idx]
+
+                    # Update native -> foreign cell if home relation is stronger (higher priority)
+                    # Skip if home relation is 'p'
+                    if home_char_native_foreign != PLACEHOLDER_CHAR:
+                        try:
+                            home_priority = get_priority(home_char_native_foreign)
+                            current_priority = get_priority(current_char_native_foreign)
+                            # Apply if home is higher priority, OR if current is 'p'/'s'/'S' and home is 'n'
+                            should_update = home_priority > current_priority
+                            if not should_update and home_char_native_foreign == 'n' and current_char_native_foreign in ('p','s','S'):
+                                should_update = True
+
+                            if should_update:
+                                logger.info(f"  Updating {native_key_str}->{foreign_key_str} from '{current_char_native_foreign}' to '{home_char_native_foreign}' based on {os.path.basename(home_tracker_path or 'N/A')}")
+                                temp_decomp_grid[native_key_str][foreign_key_idx] = home_char_native_foreign
+                                native_foreign_import_count += 1
+                        except KeyError as e:
+                            logger.warning(f"    Priority lookup failed for char '{str(e)}' when comparing {native_key_str}->{foreign_key_str}. Skipping update.")
+
+                    # Update foreign -> native cell if home relation is stronger
+                    if home_char_foreign_native != PLACEHOLDER_CHAR:
+                         try:
+                            home_priority = get_priority(home_char_foreign_native)
+                            current_priority = get_priority(current_char_foreign_native)
+                            # Apply if home is higher priority, OR if current is 'p'/'s'/'S' and home is 'n'
+                            should_update = home_priority > current_priority
+                            if not should_update and home_char_foreign_native == 'n' and current_char_foreign_native in ('p','s','S'):
+                                should_update = True
+
+                            if should_update:
+                                logger.info(f"  Updating {foreign_key_str}->{native_key_str} from '{current_char_foreign_native}' to '{home_char_foreign_native}' based on {os.path.basename(home_tracker_path or 'N/A')}")
+                                temp_decomp_grid[foreign_key_str][native_key_idx] = home_char_foreign_native
+                                native_foreign_import_count += 1
+                         except KeyError as e:
+                             logger.warning(f"    Priority lookup failed for char '{str(e)}' when comparing {foreign_key_str}->{native_key_str}. Skipping update.")
+
+            if native_foreign_import_count > 0:
+                 logger.info(f"Finished importing established Native <-> Foreign relationships. Updated cell count: {native_foreign_import_count}.")
+        else:
+            logger.debug("No native/foreign key pairs found in this mini-tracker grid. Skipping import.")
+
+    # <<< START NEW BLOCK: Final Grid Consolidation based on Global Aggregation >>>
+    consolidation_changes = 0
+    logger.info(f"Consolidating grid for '{os.path.basename(output_file)}' against global highest-priority relationships...")
+
+    # --- Step 1: Get Globally Aggregated Relationships ---
+    # This needs to run efficiently. Consider caching the result of aggregation.
+    # For now, call the aggregation helper directly. Caching would require
+    # a key based on the mtimes of ALL tracker files.
+    all_tracker_paths = find_all_tracker_paths(config, project_root)
+    aggregated_results = aggregate_all_dependencies(all_tracker_paths, path_to_key_info)
+    # Convert to simple (src,tgt) -> char map for easier lookup
+    global_authoritative_rels: Dict[Tuple[str, str], str] = {
+        link: char for link, (char, origins) in aggregated_results.items()
+    }
+    logger.debug(f"Retrieved {len(global_authoritative_rels)} globally authoritative relationships for consolidation.")
+
+    # --- Step 2: Iterate through the current temp grid and consolidate ---
+    for row_key in final_sorted_keys_list:
+        if row_key not in temp_decomp_grid: continue # Should not happen, but safety check
+        current_row_list = temp_decomp_grid[row_key]
+
+        for col_idx, current_char in enumerate(current_row_list):
+            if col_idx >= len(final_sorted_keys_list): break # Safety break
+            col_key = final_sorted_keys_list[col_idx]
+
+            if row_key == col_key: continue # Skip diagonal
+
+            # Get the globally authoritative relationship for this pair
+            authoritative_char = global_authoritative_rels.get((row_key, col_key), PLACEHOLDER_CHAR)
+
+            # Compare priorities and update if global view is stronger
+            if authoritative_char != PLACEHOLDER_CHAR: # Only act if global view has a defined non-'p' relationship
+                try:
+                    authoritative_priority = get_priority(authoritative_char)
+                    current_priority = get_priority(current_char)
+
+                    # Update if authoritative is strictly higher priority
+                    should_update = authoritative_priority > current_priority
+                    # Also update if authoritative is 'n' and current is overwritable ('p','s','S')
+                    if not should_update and authoritative_char == 'n' and current_char in ('p', 's', 'S'):
+                        should_update = True
+
+                    if should_update:
+                        # logger.debug(f"  Consolidating {row_key}->{col_key}: '{current_char}' -> '{authoritative_char}' (Global Prio: {authoritative_priority}, Current Prio: {current_priority})")
+                        current_row_list[col_idx] = authoritative_char # Update the list directly
+                        consolidation_changes += 1
+
+                except KeyError as e:
+                    logger.warning(f"  Consolidation: Priority lookup failed for char '{str(e)}' comparing {row_key}->{col_key}. Skipping cell.")
+
+    if consolidation_changes > 0:
+        logger.info(f"Consolidation applied {consolidation_changes} updates based on global relationships.")
+        # Mark grid as changed if consolidation occurred (affects timestamp)
+        grid_structure_changed = True # Re-use this flag maybe? Or a new one? Let's reuse for now.
+        # If reusing, ensure the timestamp logic below correctly picks the most recent change type.
+        # It might be better to introduce `grid_content_changed_by_consolidation = True`
+        # and adjust the timestamp logic block. Let's stick with grid_structure_changed for now.
+    else:
+         logger.debug("No consolidation changes needed based on global relationships.")
+    # <<< END NEW BLOCK >>>
+
+
+    # --- Update Grid Edit Timestamp ---
+    # This logic needs to correctly account for consolidation changes.
+    # If we reused grid_structure_changed, the existing logic might set the
+    # "Grid structure updated" message, which isn't quite right.
+    # Let's refine the timestamp logic slightly:
     final_last_grid_edit = current_last_grid_edit
+    grid_content_changed = suggestion_applied or (consolidation_changes > 0)
 
     # 1. Check if specific manual dependencies were applied FIRST
     # Ensure suggestion_applied is True to confirm *some* change happened via suggestions
     # Use the captured details: applied_manual_source, applied_manual_targets, applied_manual_dep_type
     if force_apply_suggestions and suggestion_applied and applied_manual_source and applied_manual_targets and applied_manual_dep_type:
         # Use the captured details for the specific message
-        sorted_targets = sort_key_strings_hierarchically(list(set(applied_manual_targets))) # Use set to remove duplicates before sort
-        final_last_grid_edit = f"Manual dependency update {applied_manual_source} -> {sorted_targets} ({applied_manual_dep_type}) ({datetime.datetime.now().isoformat()})"
+        sorted_targets = sort_key_strings_hierarchically(list(set(applied_manual_targets)))
+        final_last_grid_edit = f"Manual dependency update {applied_manual_source} -> {sorted_targets} ({applied_manual_dep_type or '?'}) ({datetime.datetime.now().isoformat()})"
         logger.debug(f"Setting last_GRID_edit to detailed manual message: {final_last_grid_edit}")
-
-    # 2. Else if suggestions were applied (but not the specific manual case above, or details weren't captured)
-    elif suggestion_applied:
-        # This covers non-forced suggestion application and forced applies where details weren't fully captured
-        final_last_grid_edit = f"Applied suggestions ({datetime.datetime.now().isoformat()})"
-        logger.debug(f"Setting last_GRID_edit to generic suggestions message: {final_last_grid_edit}")
-
-    # 3. Else if only the grid structure changed (keys added/removed, but no suggestions applied)
+    elif grid_content_changed:
+        final_last_grid_edit = f"Grid content updated ({datetime.datetime.now().isoformat()})"
+        logger.debug(f"Setting last_GRID_edit to generic content update message: {final_last_grid_edit}")
+    # 2. Else if only the grid structure changed (keys added/removed, but no suggestions applied)
     elif grid_structure_changed:
         final_last_grid_edit = f"Grid structure updated ({datetime.datetime.now().isoformat()})"
         logger.debug(f"Setting last_GRID_edit to structure update message: {final_last_grid_edit}")
-
-    # 4. Otherwise, it remains the current_last_grid_edit (no relevant grid/suggestion changes occurred)
+    # 3. Otherwise, it remains the current_last_grid_edit (no relevant grid/suggestion changes occurred)
     else:
          logger.debug(f"Keeping existing last_GRID_edit message: {final_last_grid_edit}")
 
@@ -1309,13 +1614,12 @@ def export_tracker(tracker_path: str, output_format: str = "json", output_path: 
     try:
         dirname = os.path.dirname(output_path); os.makedirs(dirname, exist_ok=True)
         keys_map = tracker_data.get("keys", {}); grid = tracker_data.get("grid", {})
-        # <<< *** MODIFIED SORTING *** >>>
         sorted_keys_list = sort_key_strings_hierarchically(list(keys_map.keys()))
         if output_format == "md": shutil.copy2(tracker_path, output_path)
-        elif output_format == "json": # (JSON export unchanged)
+        elif output_format == "json":
             export_data = tracker_data.copy()
             with open(output_path, 'w', encoding='utf-8') as f: json.dump(export_data, f, indent=2, ensure_ascii=False)
-        elif output_format == "csv": # (CSV export unchanged)
+        elif output_format == "csv":
              with open(output_path, 'w', encoding='utf-8', newline='') as f:
                 import csv; writer = csv.writer(f); writer.writerow(["Source Key", "Source Path", "Target Key", "Target Path", "Dependency Type"])
                 key_to_idx = {k: i for i, k in enumerate(sorted_keys_list)}

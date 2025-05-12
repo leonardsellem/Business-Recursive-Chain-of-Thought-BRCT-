@@ -1,27 +1,24 @@
-# Cline Recursive Chain-of-Thought System (CRCT) - v7.7
+# Cline Recursive Chain-of-Thought System (CRCT) - v7.8
 
 Welcome to the **Cline Recursive Chain-of-Thought System (CRCT)**, a framework designed to manage context, dependencies, and tasks in large-scale Cline projects within VS Code. Built for the Cline extension, CRCT leverages a recursive, file-based approach with a modular dependency tracking system to maintain project state and efficiency as complexity increases.
 
-Version **v7.5** represents a significant restructuring of the CRCT system, bringing it into alignment with its original design goals.  With the core architecture now established, future v7.x releases will focus on performance optimizations, enhancements, and refining the existing codebase.
-- Version **v7.7** significantly restructures the core prompt and plugins, as well as introduces a new phase and plugin prompt, cleanup_consolidation_plugin.md.
-   - cleanup_consolidation is responsible for consolidating project information into the appropriate files and either archiving or deleting old tasks.
-   **WARNING** This new phase leverages shell commands for renaming, moving, and deleting files. **DO NOT** let the system go unattended during this phase if you value your project content. The system *should* ask the user for confirmation on which commands to use for the specific environment it is using, however certain instructions in the Cline and Roo system prompts may interfere with this behavior, so use caution until this new feature has proven to be stable.
-- New templates were added to enhance the strategy and execution phases: hdta_review_progress and hierarchical_task_checklist.
-- Added more utility information to the [LEARNING_JOURNAL] in .clinerules.
-
-This version includes a more automated design, consolidating operations and enhancing efficiency.
-It also incorporates:
-- base templates for all core files
-- modular dependency processing system
-- **Contextual Keys (KeyInfo)**: A fundamental shift to using contextual keys for more precise and hierarchical dependency tracking.
-- **Hierarchical Dependency Aggregation**: Enables rolled-up dependency views in the main tracker, offering a better understanding of project-level dependencies.
-- **Enhanced `show-dependencies` command**: Provides a powerful way to inspect dependencies, aggregating information from all trackers for a given key, simplifying dependency analysis.
-- **Configurable Embedding Device**: Allows users to optimize performance by selecting the embedding device (`cpu`, `cuda`, `mps`) via `.clinerules.config.json`.
-- **File Exclusion Patterns**: Users can now customize project analysis by defining file exclusion patterns in `.clinerules.config.json`.
-- **Improved Caching and Batch Processing**: Enhanced system performance and efficiency through improved caching and batch processing mechanisms.
-- Cache + batch processing enable *significant* time savings.
-   - Test project **without** cache and batch processing took ~`11` minutes.
-   - Test project **with** cache and batch processing took ~`30` seconds.
+- Version **v7.8**: Introduces dependency visualization, overhauls the Strategy phase for iterative roadmap planning, and refines Hierarchical Design Token Architecture (HDTA) templates.
+    - **Dependency Visualization (`visualize-dependencies`)**:
+        - Added a new command to generate Mermaid diagrams visualizing project dependencies.
+        - Supports project overview, module-focused (internal + interface), and multi-key focused views.
+        - Auto-generates overview and module diagrams during `analyze-project` (configurable).
+        - Diagrams saved by default to `<memory_dir>/dependency_diagrams/`.
+    - **Strategy Phase Overhaul (`strategy_plugin.md`):**
+        - Replaced monolithic planning with an **iterative, area-based workflow** focused on minimal context loading, making it more robust for LLM execution.
+        - Clarified primary objective as **hierarchical project roadmap construction and maintenance** using HDTA.
+        - Integrated instructions for leveraging dependency diagrams (auto-generated or on-demand) to aid analysis.
+        - Refined state management (`.clinerules` vs. `activeContext.md`).
+    - **HDTA Template Updates**:
+        - Reworked `implementation_plan_template.md` for objective/feature focus.
+        - Added clarifying instructions to `module_template.md` and `task_template.md`.
+        - Created new `roadmap_summary_template.md` for unified cycle plans.
+- Version **v7.7**: Restructured core prompt/plugins, introduced `cleanup_consolidation_plugin.md` phase (use with caution due to file operations), added `hdta_review_progress` and `hierarchical_task_checklist` templates.
+- Version **v7.5**: Significant baseline restructuring, establishing core architecture, Contextual Keys (`KeyInfo`), Hierarchical Dependency Aggregation, enhanced `show-dependencies`, configurable embedding device, file exclusion patterns, improved caching & batch processing.
 
 ---
 
@@ -38,29 +35,25 @@ It also incorporates:
     - `show-dependencies` aggregates dependency details (inbound/outbound, paths) from *all* trackers for a specific key, eliminating manual tracker deciphering.
     - `add-dependency` resolves placeholder ('p') or suggested ('s', 'S') relationships identified via this process. **Crucially, when targeting a mini-tracker (`*_module.md`), `add-dependency` now allows specifying a `--target-key` that doesn't exist locally, provided the target key is valid globally (known from `analyze-project`). The system automatically adds the foreign key definition and updates the grid, enabling manual linking to external dependencies.**
       *   **Tip:** This is especially useful for manually linking relevant documentation files (e.g., requirements, design specs, API descriptions) to code files within a mini-tracker, even if the code file is incomplete or doesn't trigger an automatic suggestion. This provides the LLM with crucial context during code generation or modification tasks, guiding it towards the intended functionality described in the documentation (`doc_key < code_key`).
+   - **Dependency Visualization (`visualize-dependencies`)**: **(NEW in v7.8)**
+    - Generates Mermaid diagrams for project overview, module scope (internal + interface), or specific key focus.
+    - Auto-generates overview/module diagrams via `analyze-project`.
+- **Iterative Strategy Phase**: **(NEW in v7.8)**
+    - Plans the project roadmap iteratively, focusing on one area (module/feature) at a time.
+    - Explicitly integrates dependency analysis (textual + visual) into planning.
+- **Refined HDTA Templates**: **(NEW in v7.8)**
+    - Improved templates for Implementation Plans, Modules, and Tasks.
+    - New template for Roadmap Summaries.
 - **Configurable Embedding Device**: Allows users to configure the embedding device (`cpu`, `cuda`, `mps`) via `.clinerules.config.json` for optimized performance on different hardware. (Note: *the system does not yet install the requirements for cuda or mps automatically, please install the requirements manually or with the help of the LLM.*)
 - **File Exclusion Patterns**: Users can now define file exclusion patterns in `.clinerules.config.json` to customize project analysis.
-- **New Cache System**: Implemented a new caching mechanism for improved performance, including improved invalidation logic.
-- **New Batch Processing System**: Introduced a batch processing system for handling large tasks efficiently, with enhanced flexibility in passing arguments to processor functions.
+- **Caching and Batch Processing**: Significantly improves performance.
 - **Modular Dependency Tracking**:
     - Utilizes main trackers (`module_relationship_tracker.md`, `doc_tracker.md`) and module-specific mini-trackers (`{module_name}_module.md`).
     - Mini-tracker files also serve as the HDTA Domain Module documentation for their respective modules.
     - Employs hierarchical keys and RLE compression for efficiency.
 - **Automated Operations**: System operations are now largely automated and condensed into single commands, streamlining workflows and reducing manual command execution.
-- **Phase-Based Workflow**: Operates in distinct phases—**Set-up/Maintenance**, **Strategy**, **Execution**—controlled by `.clinerules`.
+- **Phase-Based Workflow**: Operates in distinct phases: Set-up/Maintenance -> Strategy -> Execution -> Cleanup/Consolidation, controlled by `.clinerules`.
 - **Chain-of-Thought Reasoning**: Ensures transparency with step-by-step reasoning and reflection.
-
-## **NEW**
-
-Introduced the `visualize-dependencies` command (experimental) for generating Mermaid dependency flowcharts. Features include:
-- Whole-project (python -m cline_utils.dependency_system.dependency_processor visualize-dependencies) and `--key` focused views.
-- Hierarchical subgraphs.
-- Filtering of structural, type-mismatch, and placeholder links.
-- Consolidated output (`&`) with official labels.
-- Hierarchical sorting.
-- Saves to default output files in project root.
-
-*Note: `visualize-dependencies` is experimental and may undergo significant changes.*
 
 ---
 
@@ -94,6 +87,7 @@ Introduced the `visualize-dependencies` command (experimental) for generating Me
 ```
 Cline-Recursive-Chain-of-Thought-System-CRCT-/
 │   .clinerules
+│   .clinerules.config.json       # Configuration for dependency system
 │   .gitignore
 │   INSTRUCTIONS.md
 │   LICENSE
@@ -104,40 +98,49 @@ Cline-Recursive-Chain-of-Thought-System-CRCT-/
 │   │  activeContext.md           # Current state and priorities
 │   │  changelog.md               # Logs significant changes
 │   │  userProfile.md             # User profile and preferences
+│   │  progress.md                # High-level project checklist
+│   │
 │   ├──backups/                   # Backups of tracker files
+│   ├──dependency_diagrams/       # Default location for auto-generated Mermaid diagrams <NEW>
 │   ├──prompts/                   # System prompts and plugins
 │   │    core_prompt.md           # Core system instructions
+|   |    cleanup_consolidation_plugin.md <NEWer>
 │   │    execution_plugin.md
 │   │    setup_maintenance_plugin.md
-│   │    strategy_plugin.md
+│   │    strategy_plugin.md         <REVISED>
 │   ├──templates/                 # Templates for HDTA documents
-│   │    implementation_plan_template.md
-│   │    module_template.md
+│   │    hdta_review_progress_template.md <NEWer>
+│   │    hierarchical_task_checklist_template.md <NEWer>
+│   │    implementation_plan_template.md <REVISED>
+│   │    module_template.md         <Minor Update>
+│   │    roadmap_summary_template.md  <NEW>
 │   │    system_manifest_template.md
-│   │    task_template.md
+│   │    task_template.md           <Minor Update>
 │
 ├───cline_utils/                  # Utility scripts
 │   └─dependency_system/
-│     │ dependency_processor.py   # Dependency management script
-│     ├──analysis/                # Analysis modules
-│     ├──core/                    # Core modules
+│     │ dependency_processor.py   # Dependency management script <REVISED>
+│     ├──analysis/                # Analysis modules <REVISED project_analyzer.py>
+│     ├──core/                    # Core modules <REVISED key_manager.py>
 │     ├──io/                      # IO modules
-│     └──utils/                   # Utility modules
+│     └──utils/                   # Utility modules <REVISED config_manager.py>, <NEW visualize_dependencies.py>
 │
 ├───docs/                         # Project documentation
 └───src/                          # Source code root
 
 ```
+*(Added/Updated relevant files/dirs)*
 
 ---
 
 ## Current Status & Future Plans
 
-- **v7.5**:  This release marks a significant restructuring of the CRCT system, bringing it into alignment with its original design goals. **Key architectural changes include the introduction of Contextual Keys (`KeyInfo`) and Hierarchical Dependency Aggregation, enhancing the precision and scalability of dependency tracking.** Key features also include the new `show-dependencies` command for simplified dependency inspection, configurable embedding device, and file exclusion patterns.
-- **Efficiency**: Achieves a ~1.9 efficiency ratio (90% fewer characters) for dependency tracking compared to full names, with efficiency improving at larger scales.
-- **Savings for Smaller Projects & Dependency Storage**: Version 7.5 enhances dependency storage and extends efficiency benefits to smaller projects, increasing CRCT versatility.
-- **Automated Design**: System operations are largely automated, condensing most procedures into single commands such as `analyze-project`, which streamlines workflows.
-- **Future Focus**: With the core architecture of v7.5 established, future development will concentrate on performance optimizations, enhancements, and the refinement of existing functionalities within the v7.x series. **Specifically, future v7.x releases will focus on performance optimizations, enhancements to the new `show-dependencies` command, and refining the existing codebase.**
+- **v7.8**: Focus on **visual comprehension and planning robustness**. Introduced Mermaid dependency diagrams (`visualize-dependencies`, auto-generation via `analyze-project`). Overhauled the Strategy phase (`strategy_plugin.md`) for iterative, area-based roadmap planning, explicitly using visualizations. Refined HDTA templates, including a new `roadmap_summary_template.md`.
+- **v7.7**: Introduced `cleanup_consolidation` phase, added planning/review tracker templates.
+- **v7.5**: Foundational restructure: Contextual Keys, Hierarchical Aggregation, `show-dependencies`, configuration enhancements, performance improvements (cache/batch).
+
+**Future Focus**: Continue refining performance, usability, and robustness. Areas include improving error handling in file operations (Cleanup), and further optimizing LLM interaction within each phase based on usage patterns. The remainder of the v7.x series will mainly be improving how embeddings, analysis, and similarity suggestions are handled. These releases might come a bit slower than previous areas due to the amount of research and testing needed to genuinely improve upon the current analysis/suggestion system.
+- *tentative* v8.x will be focused on transition to MCP based tool use, with later stages planned to move from filesystem storage/operations to database focused operation.
 
 Feedback is welcome! Please report bugs or suggestions via GitHub Issues.
 

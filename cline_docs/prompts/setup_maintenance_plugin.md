@@ -13,9 +13,10 @@
 1.  **Completion Criteria:**
     *   All core files exist and are initialized (Section II).
     *   `[CODE_ROOT_DIRECTORIES]` and `[DOC_DIRECTORIES]` are populated in `.clinerules` (Core Prompt Sections X & XI).
-    *   `doc_tracker.md` exists and has no 'p', 's', or 'S' placeholders remaining (verified via `show-keys`).
-    *   All mini-trackers (`*_module.md`) exist and have no 'p', 's', or 'S' placeholders remaining (verified via `show-keys`).
-    *   `module_relationship_tracker.md` exists and has no 'p', 's', or 'S' placeholders remaining (verified via `show-keys`).
+    *   `doc_tracker.md` exists and has no 'p', 's', or 'S' placeholders remaining (verified via `show-keys` in Section III, Stage 1).
+    *   All mini-trackers (`*_module.md`) exist and have no 'p', 's', or 'S' placeholders remaining (verified via `show-keys` in Section III, Stage 2).
+    *   `module_relationship_tracker.md` exists and has no 'p', 's', or 'S' placeholders remaining (verified via `show-keys` in Section III, Stage 3).
+    *   **Code-Documentation Cross-Reference completed (Section III, Stage 4), ensuring essential 'd' links are added.**
     *   `system_manifest.md` is created and populated (at least minimally from template).
     *   Mini-trackers are created/populated as needed via `analyze-project`.
 2.  **`.clinerules` Update (MUP):** Once all criteria are met, update `[LAST_ACTION_STATE]` as follows:
@@ -69,10 +70,11 @@
 
 ## III. Analyzing and Verifying Tracker Dependencies (Ordered Workflow)
 
-**Objective**: Ensure trackers accurately reflect project dependencies by systematically resolving placeholders ('p') and verifying suggestions ('s', 'S'). **This process MUST follow a specific order:**
-1.  `doc_tracker.md`
-2.  All Mini-Trackers (`*_module.md`)
-3.  `module_relationship_tracker.md`
+**Objective**: Ensure trackers accurately reflect project dependencies by systematically resolving placeholders ('p') and verifying suggestions ('s', 'S'), followed by an explicit code-to-documentation cross-referencing step. **This process MUST follow a specific order:**
+1.  `doc_tracker.md` (Placeholder/Suggestion Resolution)
+2.  All Mini-Trackers (`*_module.md`) (Placeholder/Suggestion Resolution)
+3.  `module_relationship_tracker.md` (Placeholder/Suggestion Resolution)
+4.  **Code-Documentation Cross-Reference** (Adding explicit dependencies)
 
 This order is crucial because Mini-Trackers capture detailed cross-directory dependencies within modules, which are essential for accurately determining the higher-level module-to-module relationships in `module_relationship_tracker.md`.
 
@@ -80,6 +82,8 @@ This order is crucial because Mini-Trackers capture detailed cross-directory dep
 *   **All tracker modifications MUST use `dependency_processor.py` commands.** See Core Prompt Section VIII for command details.
 *   **Do NOT read tracker files directly** for dependency information; use `show-keys` and `show-dependencies`.
 *   Run `analyze-project` *before* starting this verification process if significant code/doc changes have occurred since the last run, or upon entering this phase (as done in Section II).
+
+***CRITICAL EMPHASIS***: *It is critical that the documentation is **Exhaustively** cross-referenced against the code. The code cannot be completed properly if the docs that define it are not listed as a dependency. The following verification stages, especially Stage 4, are designed to achieve this.*
 
 **Procedure:**
 
@@ -163,11 +167,46 @@ This order is crucial because Mini-Trackers capture detailed cross-directory dep
             *   **Determine Relationship & State Reasoning**: Base decision on aggregated dependencies from mini-trackers and high-level design intent.
             *   **Correct/Confirm**: Use `add-dependency --tracker <path_to_module_relationship_tracker.md>` with appropriate arguments.
         *   **Final Check**: Run `show-keys --tracker <path_to_module_relationship_tracker.md>` again to confirm no checks needed remain.
-    *   **MUP**: Perform MUP after verifying `module_relationship_tracker.md`. Update `last_action`. State: "Completed verification for module_relationship_tracker.md."
+    *   **MUP**: Perform MUP after verifying `module_relationship_tracker.md`. Update `last_action`. State: "Completed verification for module_relationship_tracker.md. Proceeding to Code-Documentation Cross-Reference."
 
-5.  **Completion**: Once all three stages are complete and `show-keys` reports no `(checks needed: ...)` for `doc_tracker.md`, all mini-trackers, and `module_relationship_tracker.md`, the tracker verification part of Set-up/Maintenance is done. Check if all other phase exit criteria (Section I) are met (e.g., core files exist, code/doc roots identified). If so, prepare to exit the phase by updating `.clinerules` as per Section I.
+*Keys must be set from each perspective, as each *row* has its own dependency list.*
 
-*If a dependency is detected in **either** direction 'n' should not be used. Choose the best character to represent the directional dependency or 'd' if it is a documentation dependency.*
+5.  **Stage 4: Code-Documentation Cross-Reference (Adding 'd' links)**:
+    *   **Objective**: Systematically review code components and ensure they have explicit dependencies pointing to all essential documentation required for their understanding or implementation. This happens *after* initial placeholders/suggestions ('p', 's', 'S') are resolved in Stages 1-3.
+    *   **A. Identify Code and Doc Keys**:
+        *   Use `show-keys` on relevant trackers (mini-trackers, main tracker) to get lists of code keys.
+        *   Use `show-keys --tracker <path_to_doc_tracker.md>` to get a list of documentation keys.
+        *   *(Alternatively, use internal logic based on `ConfigManager` and the global key map if more efficient)*.
+    *   **B. Iterate Through Code Keys**:
+        *   Select a code key (e.g., `code_key_string` representing a specific code file).
+        *   **Identify Potential Docs**: Determine which documentation keys (`doc_key_string`) are potentially relevant to `code_key_string`. Consider:
+            *   The module the code belongs to.
+            *   Functionality described in the code file (`read_file <code_file_path>`).
+            *   Existing dependencies shown by `show-dependencies --key <code_key_string>`.
+            *   Look for comments in the code referencing specific documentation.
+            *   Ask questions like, "Does this documentation provide valuable or useful information for understanding how the code is intended to operate?", and "Does the code need to be aware of this information to perform its intended function?".
+            *    Conceptual links and future planned directions should be considered as well. The more information available to inform how the code operates in relation to the systems, the higher quality the end result will be.
+        *   **Examine Relevant Docs**: Use `read_file` to examine the content of the potentially relevant documentation files.
+        *   **Determine Essential Documentation**: For each potential `doc_key_string`, decide if it provides *essential* context, definitions, specifications, or explanations required to understand, implement, or correctly use the code represented by `code_key_string`. This is more than just keyword similarity.
+        *   **Add Dependencies (Bi-directionally)**: If `doc_key_string` is essential for `code_key_string`:
+            *   **State Reasoning (Mandatory)**: Explain *why* the documentation is essential for the code.
+            *   **Add Code -> Doc Link**: Use `add-dependency` targeting the tracker most relevant to the *code file*.
+                ```bash
+                # Reasoning: [Explain why doc_key_string is essential for code_key_string]
+                python -m cline_utils.dependency_system.dependency_processor add-dependency --tracker <code_file_tracker_path> --source-key <code_key_string> --target-key <doc_key_string> --dep-type "<dep_char>"
+                ```
+            *   **Add Doc -> Code Link**: Use `add-dependency` targeting `doc_tracker.md`.
+                ```bash
+                # Reasoning: [Same reasoning as above, from doc's perspective]
+                python -m cline_utils.dependency_system.dependency_processor add-dependency --tracker <path_to_doc_tracker.md> --source-key <doc_key_string> --target-key <code_key_string> --dep-type "<dep_char>"
+                ```
+        *   Repeat for all relevant documentation keys for the current `code_key_string`.
+    *   **C. Repeat for All Code Keys**: Continue Step 5.B until all relevant code keys have been reviewed against the documentation corpus.
+    *   **MUP**: Perform MUP. Update `last_action`. State: "Completed Code-Documentation Cross-Reference."
+
+6.  **Completion**: Once all four stages are complete and `show-keys` reports no `(checks needed: ...)` for `doc_tracker.md`, all mini-trackers, and `module_relationship_tracker.md`, the tracker verification part of Set-up/Maintenance is done. Check if all other phase exit criteria (Section I) are met (e.g., core files exist, code/doc roots identified, system manifest populated). If so, prepare to exit the phase by updating `.clinerules` as per Section I.
+
+*If a dependency is detected in **either** direction 'n' should not be used. Choose the best character to represent the directional dependency or 'd' if it is a more general documentation dependency.*
 
 ## IV. Set-up/Maintenance Dependency Workflow Diagram
 
@@ -237,7 +276,22 @@ graph TD
 
     G --> Verify_main_tracker;
     G9 --> H[MUP after Stage 3];
-    H --> I[End Verification Process - Check All Exit Criteria (Section I)];
+
+    H --> J[Stage 4: Code-Documentation Cross-Ref];
+    subgraph CodeDocRef [Stage 4: Code-Doc Cross-Ref]
+        J1[Identify Code & Doc Keys] --> J2[For Each Code Key:];
+        J2 --> J3(Identify Potential Docs);
+        J3 --> J4(Read Code & Docs);
+        J4 --> J5(Determine Essential Docs & Reason);
+        J5 -- Yes --> J6(add-dependency -> tracker);
+        J6 --> J2;
+        J5 -- No --> J2;
+        J2 -- All Code Keys Done --> J7[Stage 4 Complete];
+    end
+
+    J --> CodeDocRef;
+    J7 --> K[MUP after Stage 4];
+    K --> L[End Verification Process - Check All Exit Criteria (Section I)];
 
     style Verify_doc_tracker fill:#e6f7ff,stroke:#91d5ff
     style Find_Verify_Minis fill:#f6ffed,stroke:#b7eb8f
@@ -292,8 +346,13 @@ After performing the Core MUP steps (Core Prompt Section VI):
         ```
         last_action: "Completed All Tracker Verification"
         current_phase: "Set-up/Maintenance"
+        next_action: "Perform Code-Documentation Cross-Reference"
+        next_phase: "Set-up/Maintenance"
+        ```
+    *   After completing Code-Documentation Cross-Reference:
+        ```
+        last_action: "Completed Code-Documentation Cross-Reference ('d' links added)"
+        current_phase: "Set-up/Maintenance"
         next_action: "Phase Complete - User Action Required"
         next_phase: "Strategy"
         ```
-
-```
