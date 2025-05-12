@@ -14,6 +14,11 @@
 - **Notes**: [Brief notes on review findings, updates made, or creation details]
 - **Last Action Date/Time**: [INSERT DATE/TIME OF LAST ACTION]
 
+### Project Roadmap
+- **File Path**: `project_roadmap.md` (or `{memory_dir}/project_roadmap.md`)
+- **Status**: [ ] Not Reviewed / [ ] Reviewed / [ ] Updated / [ ] Created
+- **Notes**: [Brief notes on review findings, updates made, or creation details]
+- **Last Action Date/Time**: [INSERT DATE/TIME OF LAST ACTION]
 ### Domain Modules
 
 | Module Name | File Path | Status | Notes | Last Action Date/Time |

@@ -41,7 +41,7 @@ DEFAULT_CONFIG = {
         # Explicitly exclude the default embeddings directory path relative to project root
         # to prevent processing its own contents (metadata.json, .npy files)
         "cline_utils/dependency_system/analysis/embeddings",
-        # --- END MODIFICATION ---
+        "cline_docs/dependency_diagrams", 
     ],
     "excluded_extensions": [
         ".pyc",
@@ -94,8 +94,9 @@ DEFAULT_CONFIG = {
         ".old",
         ".orig",
         ".embedding",
-        ".npy"
-    ],  
+        ".npy",
+        ".mermaid"
+    ],
     "thresholds": {"doc_similarity": 0.65, "code_similarity": 0.7},
     "models": {
         "doc_model_name": "all-mpnet-base-v2",
@@ -119,7 +120,12 @@ DEFAULT_CONFIG = {
         "*_module.md",
         "implementation_plan_*.md",
         "*_task.md" # Future task file pattern (to be confirmed)
-    ]              
+    ],
+    "visualization": {
+        "auto_generate_on_analyze": True, # Enable auto-generation by default
+        "auto_diagram_output_dir": None   # Default to None, meaning derive from memory_dir
+                                          # If user sets this (e.g., "my_diagrams"), it overrides the default derivation
+    }
 }
 
 # Define character priorities (Higher number = higher priority) - Centralized definition

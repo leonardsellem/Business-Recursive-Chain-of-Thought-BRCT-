@@ -18,6 +18,7 @@ from cline_utils.dependency_system.utils.cache_manager import cached, file_modif
 from cline_utils.dependency_system.utils.config_manager import ConfigManager
 from cline_utils.dependency_system.utils.path_utils import is_subpath, normalize_path, get_project_root
 from cline_utils.dependency_system.utils.template_generator import generate_final_review_checklist
+from cline_utils.dependency_system.utils.visualize_dependencies import generate_mermaid_diagram
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
     Analyzes all files in a project to identify dependencies between them,
     initialize trackers, suggest dependencies using the new contextual key system,
     and generate relevant project templates like the final review checklist.
+    Also auto-generates dependency diagrams if enabled.
 
     Args:
         force_analysis: Bypass cache and force reanalysis of files
@@ -44,28 +46,10 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
 
     analyzer_batch_processor = BatchProcessor()
     # Clear relevant caches if forcing re-analysis
-    if force_analysis:
-        logger.info("Force analysis requested. Clearing all caches.")
-        clear_all_caches()
-
-    results = { 
-        "status": "success", "message": "", "tracker_initialization": {},
-        "embedding_generation": {}, "dependency_suggestion": {},
-        "tracker_update": {}, "file_analysis": {},
-        "template_generation": {} 
-    }
-
-    # --- Exclusion Setup ---
-    excluded_dirs_rel = config.get_excluded_dirs()
-    excluded_paths_rel = config.get_excluded_paths() # This now returns resolved absolute paths
-    excluded_extensions = set(config.get_excluded_extensions())
-    # excluded_file_patterns = config.config.get("excluded_file_patterns", []) # Already handled by get_excluded_paths
-
-    excluded_dirs_abs_set = {normalize_path(os.path.join(project_root, p)) for p in excluded_dirs_rel}
-    # Use the resolved absolute paths from get_excluded_paths directly
-    all_excluded_paths_abs_set = set(excluded_paths_rel).union(excluded_dirs_abs_set)
-
-
+    if force_analysis: logger.info("Force analysis requested. Clearing all caches."); clear_all_caches()
+    results = { "status": "success", "message": "", "tracker_initialization": {}, "embedding_generation": {}, "dependency_suggestion": {}, "tracker_update": {}, "file_analysis": {}, "template_generation": {}, "auto_visualization": {} } # Add viz section
+    excluded_dirs_rel = config.get_excluded_dirs(); excluded_paths_rel = config.get_excluded_paths(); excluded_extensions = set(config.get_excluded_extensions()); excluded_file_patterns_config = config.config.get("excluded_file_patterns", [])
+    excluded_dirs_abs_set = {normalize_path(os.path.join(project_root, p)) for p in excluded_dirs_rel}; all_excluded_paths_abs_set = set(excluded_paths_rel).union(excluded_dirs_abs_set)
     norm_project_root = normalize_path(project_root)
     # Check if norm_project_root itself is excluded by checking if it starts with or equals any excluded path
     if any(norm_project_root == excluded_path or norm_project_root.startswith(excluded_path + os.sep) 
@@ -75,19 +59,8 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
     # --- Root Directories Setup ---
     code_root_directories_rel = config.get_code_root_directories()
     doc_directories_rel = config.get_doc_directories()
-    all_roots_rel = list(set(code_root_directories_rel + doc_directories_rel)) 
-    all_roots_rel.sort()
-    logger.debug(f"Processing root directories in stable order: {all_roots_rel}")
-
-    if not code_root_directories_rel:
-        logger.error("No code root directories configured.")
-        results["status"] = "error"; results["message"] = "No code root directories configured."; return results
-    if not doc_directories_rel:
-        logger.warning("No documentation directories configured. Proceeding without doc analysis.")
-
-    abs_code_roots = {normalize_path(os.path.join(project_root, r)) for r in code_root_directories_rel}
-    abs_doc_roots = {normalize_path(os.path.join(project_root, r)) for r in doc_directories_rel}
-    abs_all_roots = {normalize_path(os.path.join(project_root, r)) for r in all_roots_rel}
+    all_roots_rel = sorted(list(set(code_root_directories_rel + doc_directories_rel)))
+    abs_code_roots = {normalize_path(os.path.join(project_root, r)) for r in code_root_directories_rel}; abs_doc_roots = {normalize_path(os.path.join(project_root, r)) for r in doc_directories_rel}; abs_all_roots = {normalize_path(os.path.join(project_root, r)) for r in all_roots_rel}
 
     old_map_existed_before_gen = False
     try:
@@ -129,7 +102,6 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
     config_manager_instance = ConfigManager()
     logger.info("Identifying files for analysis...")
     files_to_analyze_abs = []
-    excluded_file_patterns_config = config_manager_instance.config.get("excluded_file_patterns", []) # From .clinerules.config.json
 
     # Use abs_all_roots for finding files, order doesn't strictly matter here
     for abs_root_dir in abs_all_roots:
@@ -397,6 +369,97 @@ def analyze_project(force_analysis: bool = False, force_embeddings: bool = False
              results["status"] = "warning" # Or "error" if this is critical
         results["message"] += f" Critical error during template generation: {template_err}."
 
+    # --- Auto Diagram Generation (if enabled) --- <<< NEW SECTION >>>
+    # Use a default value for get() in case 'visualization' section is missing entirely
+    auto_generate_enabled = config.config.get("visualization", {}).get("auto_generate_on_analyze", True)
+
+    if auto_generate_enabled:
+        logger.info("Starting automatic diagram generation...")
+        results["auto_visualization"] = {"overview": "skipped", "modules": {}} # Initialize status
+
+        # Determine output directory
+        memory_dir_rel_analyzer = config.get_path('memory_dir', 'cline_docs')
+        default_diagram_subdir = "dependency_diagrams"
+        default_auto_diagram_dir_abs = normalize_path(os.path.join(project_root, memory_dir_rel_analyzer, default_diagram_subdir))
+        auto_diagram_output_dir_config_rel = config.config.get("visualization", {}).get("auto_diagram_output_dir") # Check if user set a path
+
+        if auto_diagram_output_dir_config_rel:
+            auto_diagram_output_dir_abs = normalize_path(os.path.join(project_root, auto_diagram_output_dir_config_rel))
+            logger.info(f"Using configured auto diagram output directory: {auto_diagram_output_dir_abs}")
+        else:
+            auto_diagram_output_dir_abs = default_auto_diagram_dir_abs
+            logger.info(f"Using default auto diagram output directory: {auto_diagram_output_dir_abs}")
+
+        try:
+            if not os.path.exists(auto_diagram_output_dir_abs):
+                os.makedirs(auto_diagram_output_dir_abs, exist_ok=True)
+
+            # Find all tracker paths *again* here, as they might have just been created/updated
+            current_tracker_paths = tracker_io.find_all_tracker_paths(config, project_root)
+
+            # --- Generate Project Overview Diagram ---
+            logger.info("Generating project overview diagram...")
+            overview_filename = "project_overview_dependencies.mermaid"
+            overview_path = os.path.join(auto_diagram_output_dir_abs, overview_filename)
+
+            overview_mermaid_code = generate_mermaid_diagram(
+                focus_keys_list=[], # Empty list for overview
+                global_path_to_key_info_map=path_to_key_info,
+                all_tracker_paths_list=list(current_tracker_paths),
+                config_manager_instance=config
+            )
+            if overview_mermaid_code and "// No relevant data" not in overview_mermaid_code and "Error:" not in overview_mermaid_code[:20]:
+                with open(overview_path, 'w', encoding='utf-8') as f: f.write(overview_mermaid_code)
+                logger.info(f"Project overview diagram saved to {overview_path}")
+                results["auto_visualization"]["overview"] = "success"
+            else:
+                logger.warning(f"Skipping save for project overview diagram (no data or failed generation).")
+                results["auto_visualization"]["overview"] = "nodata_or_failed"
+
+            # --- Generate Per-Module Diagrams ---
+            module_keys_to_visualize = []
+            # Logic to find module keys (e.g., top-level dirs under code roots)
+            for key_info_obj_analyzer in path_to_key_info.values():
+                if key_info_obj_analyzer.is_directory:
+                    is_top_level_module_dir_analyzer = False
+                    for acr_path_analyzer in abs_code_roots: # abs_code_roots defined earlier
+                        if key_info_obj_analyzer.norm_path == acr_path_analyzer: is_top_level_module_dir_analyzer = True; break
+                        if key_info_obj_analyzer.parent_path == acr_path_analyzer: is_top_level_module_dir_analyzer = True; break
+                    if is_top_level_module_dir_analyzer:
+                         module_keys_to_visualize.append(key_info_obj_analyzer.key_string)
+
+            module_keys_unique = sorted(list(set(module_keys_to_visualize)))
+            logger.info(f"Identified module keys for auto-visualization: {module_keys_unique}")
+            results["auto_visualization"]["modules"] = {mk: "skipped" for mk in module_keys_unique} # Initialize module status
+
+            for module_key_str in module_keys_unique:
+                logger.info(f"Generating diagram for module: {module_key_str}...")
+                module_diagram_filename = f"module_{module_key_str}_dependencies.mermaid".replace("/", "_").replace("\\", "_")
+                module_diagram_path = os.path.join(auto_diagram_output_dir_abs, module_diagram_filename)
+
+                module_mermaid_code = generate_mermaid_diagram(
+                    focus_keys_list=[module_key_str],
+                    global_path_to_key_info_map=path_to_key_info,
+                    all_tracker_paths_list=list(current_tracker_paths),
+                    config_manager_instance=config
+                )
+                if module_mermaid_code and "// No relevant data" not in module_mermaid_code and "Error:" not in module_mermaid_code[:20]:
+                    with open(module_diagram_path, 'w', encoding='utf-8') as f: f.write(module_mermaid_code)
+                    logger.info(f"Module {module_key_str} diagram saved to {module_diagram_path}")
+                    results["auto_visualization"]["modules"][module_key_str] = "success"
+                else:
+                    logger.warning(f"Skipping save for module {module_key_str} diagram (no data or failed generation).")
+                    results["auto_visualization"]["modules"][module_key_str] = "nodata_or_failed"
+
+        except Exception as viz_err:
+            logger.error(f"Error during automatic diagram generation: {viz_err}", exc_info=True)
+            results["auto_visualization"]["status"] = "error" # Add overall status
+            if results["status"] == "success": results["status"] = "warning"
+            results["message"] += f" Warning: Automatic diagram generation failed: {viz_err}."
+    else:
+        logger.info("Automatic diagram generation is disabled in config.")
+        results["auto_visualization"]["status"] = "disabled"
+    # --- END Auto Diagram Generation ---
 
     # --- Final Status Check & Return ---
     if results["status"] == "success": print("Project analysis completed successfully."); results["message"] = "Project analysis completed successfully."

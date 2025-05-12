@@ -47,7 +47,8 @@ from cline_utils.dependency_system.utils.tracker_utils import (
     read_tracker_file, find_all_tracker_paths, aggregate_all_dependencies
 )
 
-from cline_utils.dependency_system.utils.template_generator import add_code_doc_dependency_to_checklist, _get_item_type as get_item_type_for_checklist # Renamed for clarity
+from cline_utils.dependency_system.utils.template_generator import add_code_doc_dependency_to_checklist, _get_item_type as get_item_type_for_checklist
+from cline_utils.dependency_system.utils.visualize_dependencies import generate_mermaid_diagram # Renamed for clarity
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -556,232 +557,110 @@ def handle_show_keys(args: argparse.Namespace) -> int:
         return 1
 
 def handle_visualize_dependencies(args: argparse.Namespace) -> int:
-    """Handles the visualize-dependencies command."""
-    target_key_str = args.key
-    output_format = args.format.lower()
-    output_path_arg = args.output
+    """Handles the visualize-dependencies command by calling the core generation function."""
+    # 1. Get arguments
+    focus_keys_list_cli = args.key if args.key is not None else [] # args.key is now a list or None
+    output_format_cli = args.format.lower()
+    output_path_arg_cli = args.output
 
-    logger.info(f"Generating dependency visualization. Focus Key: {target_key_str or 'None'}, Format: {output_format}")
-    if output_format != "mermaid": print(f"Error: Only 'mermaid' format supported."); return 1
+    logger.info(f"CLI: visualize-dependencies called. Focus Keys: {focus_keys_list_cli or 'Project Overview'}")
 
-    global_path_to_key_info = _load_global_map_or_exit()
-    config = ConfigManager()
-    project_root = get_project_root()
-    all_tracker_paths = find_all_tracker_paths(config, project_root)
-    if not all_tracker_paths: print("Warning: No tracker files found.")
-    aggregated_links_with_origins = aggregate_all_dependencies(all_tracker_paths, global_path_to_key_info)
-    # Ignore origins for visualization, just need consolidated directed links
-    consolidated_directed_links: Dict[Tuple[str, str], str] = {
-        link: char for link, (char, origins) in aggregated_links_with_origins.items()
-    }
+    # 2. Basic validation
+    if output_format_cli != "mermaid":
+        print(f"Error: Only 'mermaid' format supported at this time.")
+        return 1
 
-    # --- Prepare Edges for Drawing (Handle Mutual vs. One-Way) ---
-    final_edges_to_draw_step1 = []
-    processed_pairs_final = set()
-    sorted_consolidated_items = sorted(consolidated_directed_links.items()) # Sort for determinism
-    temp_mutual_edges = []
-    temp_directional_map = {} # Store forward links temporarily
-
-    # First pass: identify mutual/reciprocal links and store others
-    for (source, target), forward_char in sorted_consolidated_items:
-        pair = tuple(sorted((source, target)))
-        reverse_char = consolidated_directed_links.get((target, source))
-        if forward_char == 'x' or reverse_char == 'x':
-            if pair not in processed_pairs_final:
-                temp_mutual_edges.append((source, target, 'x')); processed_pairs_final.add(pair)
-        elif (forward_char == '>' and reverse_char == '<'):
-             if pair not in processed_pairs_final:
-                 temp_mutual_edges.append((source, target, '>')); processed_pairs_final.add(pair) # Store as Source depends on Target
-        elif (forward_char == '<' and reverse_char == '>'):
-             if pair not in processed_pairs_final:
-                 temp_mutual_edges.append((target, source, '>')); processed_pairs_final.add(pair) # Store as Target depends on Source
-        else:
-            # Store non-mutual, non-reciprocal links for second pass
-            temp_directional_map[(source, target)] = forward_char
-
-    # Combine mutual/resolved links
-    final_edges_to_draw_step1.extend(temp_mutual_edges)
-    # Add remaining directional links if their pair wasn't processed
-    for (source, target), char_val in temp_directional_map.items():
-         pair = tuple(sorted((source, target)))
-         if pair not in processed_pairs_final:
-              final_edges_to_draw_step1.append((source, target, char_val)); processed_pairs_final.add(pair)
-    logger.info(f"Prepared {len(final_edges_to_draw_step1)} intermediate edges for drawing.")
-
-    # --- Filter by --key ---
-    relevant_keys = set()
-    if target_key_str:
-        target_info = next((info for info in global_path_to_key_info.values() if info.key_string == target_key_str), None)
-        if not target_info: print(f"Error: Focus key '{target_key_str}' not found."); return 1
-        print(f"Filtering visualization to focus on key: {target_key_str}")
-        edges_for_key = []; relevant_keys = {target_key_str}
-        for k1, k2, char_val in final_edges_to_draw_step1: # Renamed char
-            if k1 == target_key_str or k2 == target_key_str:
-                edges_for_key.append((k1, k2, char_val)); relevant_keys.add(k1); relevant_keys.add(k2)
-        final_edges_to_draw_step2 = edges_for_key
-        logger.info(f"Filtered to {len(final_edges_to_draw_step2)} edges and {len(relevant_keys)} keys.")
-    else:
-        final_edges_to_draw_step2 = final_edges_to_draw_step1
-        relevant_keys = {k for edge in final_edges_to_draw_step2 for k in edge[:2]}
-        logger.info(f"Including all {len(relevant_keys)} keys involved in dependencies.")
-
-    # --- Filter Edges (Structural x, File/Dir Types, Placeholders 'p') ---
-    final_edges_to_draw = []
-    structural_removed = 0; type_mismatch_removed = 0; placeholder_removed = 0
-    key_string_to_info_map = {info.key_string: info for info in global_path_to_key_info.values()} # Cache lookup
-
-    for k1, k2, char_val in final_edges_to_draw_step2:
-        # Skip placeholders
-        if char_val == 'p': placeholder_removed += 1; continue
-        # Skip structural 'x'
-        if char_val == 'x' and is_parent_child(k1, k2, global_path_to_key_info): structural_removed += 1; continue
-        # Skip file-dir/dir-file mismatches
-        info1 = key_string_to_info_map.get(k1); info2 = key_string_to_info_map.get(k2)
-        if not info1 or not info2: continue # Skip if key info is missing
-        if info1.is_directory != info2.is_directory: type_mismatch_removed += 1; continue
-        final_edges_to_draw.append((k1, k2, char_val))
-    logger.info(f"Edges removed: Structural 'x'({structural_removed}), Type Mismatch({type_mismatch_removed}), Placeholders({placeholder_removed})")
-    logger.info(f"Final count of edges to draw: {len(final_edges_to_draw)}")
-
-    # --- Recalculate relevant keys, Build Hierarchy Map ---
-    final_relevant_keys = {k for edge in final_edges_to_draw for k in edge[:2]}
-    if not final_relevant_keys: print("No relevant nodes or dependencies found to visualize."); return 0
-    logger.info(f"Final count of nodes to draw: {len(final_relevant_keys)}")
-
-    parent_to_children: Dict[Optional[str], List[KeyInfo]] = defaultdict(list)
-    processed_nodes_for_hierarchy = set()
-    key_string_to_info_map = {info.key_string: info for info in global_path_to_key_info.values()}
-    queue = list(final_relevant_keys); visited_for_hierarchy = set(final_relevant_keys)
-    # BFS/DFS to find all necessary parent nodes for hierarchy structure
-    while queue:
-        key_str_local = queue.pop(0); info = key_string_to_info_map.get(key_str_local) # Renamed key_str
-        if not info: continue
-        processed_nodes_for_hierarchy.add(key_str_local)
-        parent_path = normalize_path(info.parent_path) if info.parent_path else None
-        parent_to_children[parent_path].append(info)
-        if parent_path:
-            parent_info = global_path_to_key_info.get(parent_path)
-            if parent_info and parent_info.key_string not in visited_for_hierarchy:
-                visited_for_hierarchy.add(parent_info.key_string); queue.append(parent_info.key_string)
-    # Ensure all keys needed for subgraphs and nodes are included
-    all_keys_for_node_defs = final_relevant_keys.union(
-        {parent_info.key_string for path, children in parent_to_children.items() if path
-         for parent_info in [global_path_to_key_info.get(path)] if parent_info}
-    )
-    logger.debug(f"Total nodes required for definition (incl. parents): {len(all_keys_for_node_defs)}")
-
-    # --- Generate Mermaid String ---
-    mermaid_string = "flowchart TB\n\n"
-    defined_nodes = set()
-
-    # Recursive function to generate nodes and subgraphs
-    def generate_mermaid_nodes_recursive(parent_norm_path: Optional[str], nodes_in_scope: Set[str]):
-        nonlocal mermaid_string, defined_nodes
-        # Sort children based on their key string using hierarchical sort
-        children_infos = parent_to_children.get(parent_norm_path, [])
-        children_sorted = sorted(children_infos, key=lambda i: sort_key_strings_hierarchically([i.key_string])[0]) # Renamed children
-        parent_info_local = global_path_to_key_info.get(parent_norm_path) if parent_norm_path else None # Renamed parent_info
-
-        # Determine indentation based on path depth (simple approximation)
-        indent = "  " * (parent_norm_path.count('/') if parent_norm_path else 0)
-        subgraph_declared = False
-        if parent_info_local:
-             parent_key_str = parent_info_local.key_string
-             if parent_key_str in nodes_in_scope or any(child.key_string in nodes_in_scope for child in children_sorted):
-                 parent_basename = os.path.basename(parent_info_local.norm_path)
-                 mermaid_string += f'{indent}subgraph {parent_key_str} ["{parent_basename}"]\n'
-                 # Optional: Set direction within subgraph
-                 # mermaid_string += f'{indent}  direction LR\n'
-                 subgraph_declared = True
-                 # Define the subgraph node itself if it's relevant (e.g., has edges)
-                 # It might be better to define all nodes at the top level first?
-                 # For now, define within subgraph context.
-                 if parent_key_str not in defined_nodes and parent_key_str in nodes_in_scope:
-                     # Define the directory node itself if needed
-                     # node_label = f'{parent_key_str}<br>{parent_basename}'
-                     # mermaid_string += f'{indent}  {parent_key_str}(("{node_label}"))\n' # Example: circle for dir
-                     # defined_nodes.add(parent_key_str)
-                     pass # Let recursion handle sub-subgraphs first
-
-        # Process Children
-        for child_info in children_sorted:
-            child_key = child_info.key_string
-            # Skip if node isn't relevant for the final viz OR already defined
-            if child_key not in nodes_in_scope or child_key in defined_nodes: continue
-            child_path = child_info.norm_path
-            child_basename = os.path.basename(child_path)
-            if child_info.is_directory:
-                # Recurse for subdirectories BEFORE defining the current dir node
-                generate_mermaid_nodes_recursive(child_path, nodes_in_scope)
-            else:
-                # Define file node
-                node_label = f'{child_key}<br>{child_basename}'
-                # Use default rectangle shape for files
-                mermaid_string += f'{indent}  {child_key}["{node_label}"]\n'
-                defined_nodes.add(child_key)
-        # End Subgraph
-        if subgraph_declared:
-             mermaid_string += f'{indent}end\n'
-    # Initial call for root nodes (parent_path is None)
-    generate_mermaid_nodes_recursive(None, all_keys_for_node_defs)
-
-    # --- Add Dependencies (Consolidated and Sorted) ---
-    mermaid_string += "\n// --- Dependencies ---\n"
-    dep_char_to_label = {
-        '<': "relies on", '>': "required by", 'x': "mutual reliance",
-        'd': "docs", 's': "semantic (weak)", 'S': "semantic (strong)",
-    }
-    # Group edges by (source, label, arrow_type)
-    grouped_edges: Dict[Tuple[str, str, str], List[str]] = defaultdict(list)
-    arrow_map = {'x': '<-->', 's': '-.->', 'S': '==>'} # Map special chars to arrows
-
-    for k1, k2, dep_char_val in final_edges_to_draw:
-        # Ensure both nodes were needed (redundant check, but safe)
-        if k1 not in all_keys_for_node_defs or k2 not in all_keys_for_node_defs: continue
-        label = dep_char_to_label.get(dep_char_val, dep_char_val)
-        arrow = arrow_map.get(dep_char_val, '-->') 
-        group_key = (k1, label, arrow)
-        grouped_edges[group_key].append(k2)
-    # Get unique source keys first
-    list_of_unique_sources = list({k[0] for k in grouped_edges.keys()})
-    # Sort the list using the hierarchical sort function
-    sorted_unique_sources = sort_key_strings_hierarchically(list_of_unique_sources)
-    # Iterate through sorted sources, then grouped edges for that source
-    for source_key_local in sorted_unique_sources: # Use the correctly sorted list
-        # Find all groups starting with this source key
-        source_groups = [(key, targets_list) for key, targets_list in grouped_edges.items() if key[0] == source_key_local] # Sort groups by label for consistent output order within a source
-        source_groups.sort(key=lambda item: item[0][1])
-        for (src, label, arrow), targets_list_val in source_groups:
-            # Sort targets hierarchically
-            sorted_targets = sort_key_strings_hierarchically(targets_list_val)
-            targets_str = " & ".join(sorted_targets)
-            mermaid_string += f'  {src} {arrow}|"{label}"| {targets_str}\n'
-
-    # --- Determine Output Path & Write File ---
-    output_path = output_path_arg
-    if not output_path:
-        if target_key_str:
-            output_path = f"{target_key_str}_dependencies.{output_format}"
-        else:
-            output_path = f"project_dependencies.{output_format}"
-    output_path = normalize_path(output_path)
-
+    # 3. Load necessary data
     try:
-        output_dir = os.path.dirname(output_path)
-        if output_dir: os.makedirs(output_dir, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(mermaid_string)
-        logger.info(f"Successfully generated Mermaid visualization: {output_path}")
-        print(f"\nDependency visualization saved to: {output_path}")
-        print("You can view this file using Mermaid Live Editor (mermaid.live) or compatible Markdown viewers.")
+        global_path_to_key_info_cli = _load_global_map_or_exit()
+        config_cli = ConfigManager()
+        project_root_cli = get_project_root()
+        # Use find_all_tracker_paths from tracker_io module
+        all_tracker_paths_cli = find_all_tracker_paths(config_cli, project_root_cli)
+        if not all_tracker_paths_cli:
+            print("Warning: No tracker files found. Diagram may be empty.")
+            # Allow continuing to potentially generate an empty diagram structure
+    except Exception as e:
+        logger.exception("Failed to load data required for visualization.")
+        print(f"Error loading data needed for visualization: {e}", file=sys.stderr)
+        return 1
+
+
+    # 4. Call the core generation function from the new module
+    mermaid_string_generated = generate_mermaid_diagram(
+        focus_keys_list=focus_keys_list_cli,
+        global_path_to_key_info_map=global_path_to_key_info_cli,
+        all_tracker_paths_list=list(all_tracker_paths_cli), # Pass as list
+        config_manager_instance=config_cli
+    )
+
+    # 5. Handle the result (Mermaid string or None)
+    if mermaid_string_generated is None:
+        print("Error: Mermaid diagram generation failed internally. Check logs.", file=sys.stderr)
+        return 1
+    elif "Error:" in mermaid_string_generated[:20]: # Check if the string itself contains an error message
+         print(mermaid_string_generated, file=sys.stderr)
+         return 1
+    elif "// No relevant data" in mermaid_string_generated:
+         print("Info: No relevant data found to visualize based on focus keys and filters.")
+         # Still save the basic mermaid file for consistency? Or just return 0? Let's save it.
+    else:
+        logger.info("Mermaid code generated successfully.")
+
+
+    # 6. Determine output path
+    output_path_cli = output_path_arg_cli # User-specified output path
+    if not output_path_cli:
+        # Construct default path
+        if focus_keys_list_cli:
+            # Create a filename-safe string from potentially multiple keys
+            safe_keys_str = "_".join(sorted(focus_keys_list_cli)).replace("/", "_").replace("\\", "_")
+            # Limit filename length
+            max_len = 50
+            if len(safe_keys_str) > max_len:
+                safe_keys_str = safe_keys_str[:max_len] + "_etc"
+            default_filename = f"focus_{safe_keys_str}_dependencies.{output_format_cli}"
+        else:
+            default_filename = f"project_overview_dependencies.{output_format_cli}"
+
+        # --- Define the default directory ---
+        # Use memory_dir from config, defaulting to 'cline_docs' if not set
+        memory_dir_rel = config_cli.get_path('memory_dir', 'cline_docs')
+        default_output_dir_rel = os.path.join(memory_dir_rel, "dependency_diagrams")
+        # --- End Define Default Dir ---
+
+        # Combine relative default dir with project root and default filename
+        output_path_cli = normalize_path(os.path.join(project_root_cli, default_output_dir_rel, default_filename))
+        logger.info(f"No output path specified, using default: {output_path_cli}")
+
+    # Ensure output path is normalized (if user provided relative path, make it absolute)
+    elif not os.path.isabs(output_path_cli):
+         output_path_cli = normalize_path(os.path.join(project_root_cli, output_path_cli))
+    else:
+         output_path_cli = normalize_path(output_path_cli)
+
+
+    # 7. Write the output file
+    try:
+        output_dir_cli = os.path.dirname(output_path_cli)
+        if output_dir_cli: # Only create if it's not the current directory
+            os.makedirs(output_dir_cli, exist_ok=True)
+
+        with open(output_path_cli, 'w', encoding='utf-8') as f_out:
+            f_out.write(mermaid_string_generated)
+
+        logger.info(f"Successfully wrote Mermaid visualization to: {output_path_cli}")
+        print(f"\nDependency visualization saved to: {output_path_cli}")
+        if "// No relevant data" not in mermaid_string_generated: # Only print view instructions if there's data
+             print("You can view this file using Mermaid Live Editor (mermaid.live) or compatible Markdown viewers.")
         return 0
     except IOError as e:
-        logger.error(f"Failed to write visualization file {output_path}: {e}", exc_info=True)
-        print(f"Error: Could not write output file: {e}")
+        logger.error(f"Failed to write visualization file {output_path_cli}: {e}", exc_info=True)
+        print(f"Error: Could not write output file: {e}", file=sys.stderr)
         return 1
     except Exception as e:
-        logger.exception(f"An unexpected error occurred during visualization generation: {e}")
-        print(f"Error: An unexpected error occurred: {e}")
+        logger.exception(f"An unexpected error occurred during visualization file writing: {e}")
+        print(f"Error: An unexpected error occurred while writing output: {e}", file=sys.stderr)
         return 1
 
 def main():
@@ -870,9 +749,22 @@ def main():
     show_keys_parser.set_defaults(func=handle_show_keys)
 
     visualize_parser = subparsers.add_parser("visualize-dependencies", help="Generate a visualization of dependencies")
-    visualize_parser.add_argument("--key", help="Optional: Key string to focus the visualization on (shows only direct connections)")
-    visualize_parser.add_argument("--format", choices=["mermaid"], default="mermaid", help="Output format (only mermaid currently)")
-    visualize_parser.add_argument("--output", "-o", help="Output file path (default: project_dependencies.mermaid or KEY_dependencies.mermaid)")
+    visualize_parser.add_argument(
+        "--key",
+        nargs='*', # Changed to accept zero or more keys
+        default=None, # Default is None if not provided
+        help="Optional: One or more key strings to focus the visualization on. If omitted, shows overview."
+    )
+    visualize_parser.add_argument(
+        "--format",
+        choices=["mermaid"],
+        default="mermaid",
+        help="Output format (only mermaid currently)"
+    )
+    visualize_parser.add_argument(
+        "--output", "-o",
+        help="Output file path (default: project_overview... or focus_KEY(s)...)"
+    )
     visualize_parser.set_defaults(func=handle_visualize_dependencies)
 
     args = parser.parse_args()

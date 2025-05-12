@@ -1,0 +1,7 @@
+This is an early version of the experimental strategy phase using the new_task tool. The tasks auto return to the parent instance in roo(most of the time), but you may need to manually go back to the parent task in Cline (but it works).
+
+I'm providing this pre-release version because it's too good not to, but it still needs refinement.
+To use this, remove the existing strategy_plugin and core_prompt from the prompts directory and replace them with the prompts in this folder.
+Make sure the phase is set to Strategy in .clinerules if you want to test it right away.
+Open a new instance and type Start.
+Enjoy. (and report any bugs/issues)
