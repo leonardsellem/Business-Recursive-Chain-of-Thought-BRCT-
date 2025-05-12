@@ -54,6 +54,10 @@ Welcome to the **Cline Recursive Chain-of-Thought System (CRCT)**, a framework d
 - **Automated Operations**: System operations are now largely automated and condensed into single commands, streamlining workflows and reducing manual command execution.
 - **Phase-Based Workflow**: Operates in distinct phases: Set-up/Maintenance -> Strategy -> Execution -> Cleanup/Consolidation, controlled by `.clinerules`.
 - **Chain-of-Thought Reasoning**: Ensures transparency with step-by-step reasoning and reflection.
+- **Business Templates and Tools**: **(NEW)** Incorporates business-focused templates and tools from the BRCT fork:
+    - Business model canvas, idea generation/evaluation, SWOT analysis, and market research templates
+    - Business dependency tracking for mapping relationships between business factors
+    - Markdown to PDF conversion utility for creating professional documents
 
 ---
 
@@ -78,7 +82,7 @@ Welcome to the **Cline Recursive Chain-of-Thought System (CRCT)**, a framework d
    - Type `Start.` in the Cline input to initialize the system.
    - The LLM will bootstrap from `.clinerules`, creating missing files and guiding you through setup if needed.
 
-*Note*: The Cline extension’s LLM automates most commands and updates to `cline_docs/`. Minimal user intervention is required (in theory!).
+*Note*: The Cline extension's LLM automates most commands and updates to `cline_docs/`. Minimal user intervention is required (in theory!).
 
 ---
 
@@ -89,6 +93,7 @@ Cline-Recursive-Chain-of-Thought-System-CRCT-/
 │   .clinerules
 │   .clinerules.config.json       # Configuration for dependency system
 │   .gitignore
+│   ATTRIBUTION.md                # Attribution for incorporated components
 │   INSTRUCTIONS.md
 │   LICENSE
 │   README.md
@@ -118,6 +123,9 @@ Cline-Recursive-Chain-of-Thought-System-CRCT-/
 │   │    task_template.md           <Minor Update>
 │
 ├───cline_utils/                  # Utility scripts
+│   │  file_converter.py          # Markdown to PDF conversion utility <NEW>
+│   ├──assets/                    # Assets for utilities <NEW>
+│   │    professional_style.css   # CSS for PDF styling <NEW>
 │   └─dependency_system/
 │     │ dependency_processor.py   # Dependency management script <REVISED>
 │     ├──analysis/                # Analysis modules <REVISED project_analyzer.py>
@@ -127,7 +135,14 @@ Cline-Recursive-Chain-of-Thought-System-CRCT-/
 │
 ├───docs/                         # Project documentation
 └───src/                          # Source code root
-
+    ├──business_templates/        # Business innovation templates <NEW>
+    │    README.md                # Overview of business templates <NEW>
+    │    business_model_canvas.md # Enhanced BMC with recursive analysis <NEW>
+    │    idea_evaluation_template.md # Framework for evaluating ideas <NEW>
+    │    idea_generation_template.md # Structured approach to ideation <NEW>
+    │    market_research_template.md # Market analysis framework <NEW>
+    │    swot_analysis_template.md # Enhanced SWOT with decomposition <NEW>
+    └──business_dependency_tracker.md # Business factor dependency tracking <NEW>
 ```
 *(Added/Updated relevant files/dirs)*
 
@@ -158,8 +173,18 @@ The system will analyze your codebase, initialize trackers, and guide you forwar
 
 ---
 
+## Business Features
+
+This repository incorporates business-focused templates and tools from the Business Recursive Chain-of-Thought Framework (BRCT). These features enable structured approaches to business innovation processes, including idea generation, evaluation, business modeling, and strategic analysis.
+
+See the `src/business_templates/` directory for available templates and `ATTRIBUTION.md` for details on incorporated components.
+
+---
+
 ## Thanks!
 
 A big Thanks to https://github.com/biaomingzhong for providing detailed instructions that were integrated into the core prompt and plugins! (PR #25)
 
-This is a labor of love to make Cline projects more manageable. I’d love to hear your thoughts—try it out and let me know what works (or doesn’t)!
+Thanks to https://github.com/leonardsellem for the Business Recursive Chain-of-Thought Framework (BRCT) components that have been incorporated into this repository.
+
+This is a labor of love to make Cline projects more manageable. I'd love to hear your thoughts—try it out and let me know what works (or doesn't)!
