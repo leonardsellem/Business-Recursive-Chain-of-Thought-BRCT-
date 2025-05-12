@@ -89,8 +89,10 @@ def create_initial_grid(keys: List[str]) -> Dict[str, str]:
     if not keys or not all(isinstance(k, str) and validate_key(k) for k in keys):
         logger.error(f"Invalid keys provided for initial grid: {keys}")
         raise ValueError("All keys must be valid non-empty strings")
-    grid = {}; num_keys = len(keys)
-    for i, row_key in enumerate(keys):
+    sorted_keys = sort_key_strings_hierarchically(keys)
+    grid = {}
+    num_keys = len(sorted_keys)
+    for i, row_key in enumerate(sorted_keys):
         row_list = [PLACEHOLDER_CHAR] * num_keys
         row_list[i] = DIAGONAL_CHAR
         grid[row_key] = compress("".join(row_list))
